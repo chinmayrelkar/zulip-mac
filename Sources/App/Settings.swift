@@ -21,7 +21,7 @@ public final class AppSettings {
         didSet { UserDefaults.standard.set(density.rawValue, forKey: "settings.density") }
     }
     public var translucency: Double {
-        didSet { UserDefaults.standard.set(translucency, forKey: "settings.translucency") }
+        didSet { UserDefaults.standard.set(translucency, forKey: "settings.translucency.v2") }
     }
 
     /// Main UI text size (rows, headers, composer).
@@ -36,7 +36,7 @@ public final class AppSettings {
         fontFamily = defaults.string(forKey: "settings.fontFamily") ?? "System Default"
         fontSize = defaults.object(forKey: "settings.fontSize") as? Double ?? 13.5
         density = MessageDensity(rawValue: defaults.string(forKey: "settings.density") ?? "") ?? .cozy
-        translucency = defaults.object(forKey: "settings.translucency") as? Double ?? 0.5
+        translucency = defaults.object(forKey: "settings.translucency.v2") as? Double ?? 0.0
     }
 }
 
