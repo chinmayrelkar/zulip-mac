@@ -887,7 +887,6 @@ public struct MessageBody: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .fixedSize(horizontal: false, vertical: true)
         .task(id: html) { await loadCustomEmojis() }
     }
 
