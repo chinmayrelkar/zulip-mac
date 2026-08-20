@@ -78,96 +78,98 @@ public struct ComposeBar: View {
                     .frame(minHeight: 26, maxHeight: 120, alignment: .top)
                 }
 
-                // Compact Bottom Toolbar & Actions
-                HStack(spacing: 4) {
-                    if !isPreviewMode {
-                        toolButton(icon: "bold", help: "Bold (**)") { insertFormatting(prefix: "**", suffix: "**") }
-                        toolButton(icon: "italic", help: "Italic (*)") { insertFormatting(prefix: "*", suffix: "*") }
-                        toolButton(icon: "strikethrough", help: "Strikethrough (~~)") { insertFormatting(prefix: "~~", suffix: "~~") }
-                        toolButton(icon: "chevron.left.forwardslash.chevron.right", help: "Inline code (`)") { insertFormatting(prefix: "`", suffix: "`") }
-                        toolButton(icon: "curlybraces", help: "Code block (```)") { insertFormatting(prefix: "```\n", suffix: "\n```") }
-                        toolButton(icon: "link", help: "Link ([text](url))") { insertFormatting(prefix: "[", suffix: "](url)") }
-                        toolButton(icon: "quote.opening", help: "Quote (> )") { insertFormatting(prefix: "> ", suffix: "") }
-                        toolButton(icon: "list.bullet", help: "Bullet list (- )") { insertFormatting(prefix: "- ", suffix: "") }
-
-                        Divider().frame(height: 12).padding(.horizontal, 2)
-
-                        toolButton(icon: "paperclip", help: "Attach file or image") { selectAndUploadFile() }
-
+                if showFormatting {
+                    // Compact Bottom Toolbar & Actions
+                    HStack(spacing: 4) {
+                        if !isPreviewMode {
+                            toolButton(icon: "bold", help: "Bold (**)") { insertFormatting(prefix: "**", suffix: "**") }
+                            toolButton(icon: "italic", help: "Italic (*)") { insertFormatting(prefix: "*", suffix: "*") }
+                            toolButton(icon: "strikethrough", help: "Strikethrough (~~)") { insertFormatting(prefix: "~~", suffix: "~~") }
+                            toolButton(icon: "chevron.left.forwardslash.chevron.right", help: "Inline code (`)") { insertFormatting(prefix: "`", suffix: "`") }
+                            toolButton(icon: "curlybraces", help: "Code block (```)") { insertFormatting(prefix: "```\n", suffix: "\n```") }
+                            toolButton(icon: "link", help: "Link ([text](url))") { insertFormatting(prefix: "[", suffix: "](url)") }
+                            toolButton(icon: "quote.opening", help: "Quote (> )") { insertFormatting(prefix: "> ", suffix: "") }
+                            toolButton(icon: "list.bullet", help: "Bullet list (- )") { insertFormatting(prefix: "- ", suffix: "") }
+    
+                            Divider().frame(height: 12).padding(.horizontal, 2)
+    
+                            toolButton(icon: "paperclip", help: "Attach file or image") { selectAndUploadFile() }
+    
+                            Button {
+                                showEmojiPicker.toggle()
+                            } label: {
+                                Image(systemName: "face.smiling")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 22, height: 22)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Insert emoji")
+                            .popover(isPresented: $showEmojiPicker, arrowEdge: .top) {
+                                EmojiPickerPopover(store: store) { item in
+                                    showEmojiPicker = false
+                                    insertEmoji(item)
+                                }
+                            }
+                        } else {
+                            HStack(spacing: 4) {
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Color.accentColor)
+                                Text("Live Markdown Preview")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.leading, 4)
+                        }
+    
+                        Spacer()
+    
+                        // Preview Toggle Button
                         Button {
-                            showEmojiPicker.toggle()
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                isPreviewMode.toggle()
+                            }
                         } label: {
-                            Image(systemName: "face.smiling")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 22, height: 22)
-                                .contentShape(Rectangle())
+                            HStack(spacing: 3) {
+                                Image(systemName: isPreviewMode ? "pencil" : "eye")
+                                    .font(.system(size: 9))
+                                Text(isPreviewMode ? "Write" : "Preview")
+                                    .font(.system(size: 10.5, weight: .medium))
+                            }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(isPreviewMode ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(isPreviewMode ? Color.accentColor : Color.secondary)
                         }
                         .buttonStyle(.plain)
-                        .help("Insert emoji")
-                        .popover(isPresented: $showEmojiPicker, arrowEdge: .top) {
-                            EmojiPickerPopover(store: store) { item in
-                                showEmojiPicker = false
-                                insertEmoji(item)
-                            }
+                        .help("Toggle Markdown live preview")
+    
+                        // Send Button
+                        Button {
+                            Task { await store.send() }
+                        } label: {
+                            Image(systemName: "paperplane.fill")
+                                .font(.system(size: 10))
+                                .foregroundStyle(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.4) : Color.white)
+                                .frame(width: 22, height: 22)
+                                .background(
+                                    currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                        ? Color.secondary.opacity(0.15)
+                                        : Color.accentColor,
+                                    in: RoundedRectangle(cornerRadius: 5)
+                                )
                         }
-                    } else {
-                        HStack(spacing: 4) {
-                            Image(systemName: "eye.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Color.accentColor)
-                            Text("Live Markdown Preview")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.leading, 4)
+                        .buttonStyle(.plain)
+                        .disabled(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .help("Send message (Return or ⌘↵)")
+                        .keyboardShortcut(.return, modifiers: [.command])
                     }
-
-                    Spacer()
-
-                    // Preview Toggle Button
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            isPreviewMode.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Image(systemName: isPreviewMode ? "pencil" : "eye")
-                                .font(.system(size: 9))
-                            Text(isPreviewMode ? "Write" : "Preview")
-                                .font(.system(size: 10.5, weight: .medium))
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(isPreviewMode ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                        .foregroundStyle(isPreviewMode ? Color.accentColor : Color.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Toggle Markdown live preview")
-
-                    // Send Button
-                    Button {
-                        Task { await store.send() }
-                    } label: {
-                        Image(systemName: "paperplane.fill")
-                            .font(.system(size: 10))
-                            .foregroundStyle(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.4) : Color.white)
-                            .frame(width: 22, height: 22)
-                            .background(
-                                currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    ? Color.secondary.opacity(0.15)
-                                    : Color.accentColor,
-                                in: RoundedRectangle(cornerRadius: 5)
-                            )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .help("Send message (Return or ⌘↵)")
-                    .keyboardShortcut(.return, modifiers: [.command])
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
                 }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
             }
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .overlay(
@@ -178,6 +180,7 @@ public struct ComposeBar: View {
                     )
             )
             .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
+            .animation(.easeInOut(duration: 0.15), value: showFormatting)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -192,6 +195,12 @@ public struct ComposeBar: View {
 
     private var currentDraftText: String {
         store.activeTab?.draft ?? tab.draft
+    }
+
+    private var showFormatting: Bool {
+        isEditorFocused
+            || !currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || isPreviewMode
     }
 
 
@@ -338,6 +347,11 @@ private struct GrowingTextEditor: NSViewRepresentable {
             textView.string = text
         }
         textView.font = NSFont.systemFont(ofSize: fontSize)
+        // Force the actual frame height to the content height so the box is
+        // one line when empty, regardless of NSTextView's intrinsic size.
+        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+        let contentHeight = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
+        textView.frame.size.height = min(max(contentHeight + 8, 26), 120)
         if focused, let window = textView.window, window.firstResponder !== textView {
             window.makeFirstResponder(textView)
         }
@@ -348,7 +362,7 @@ private struct GrowingTextEditor: NSViewRepresentable {
         nsView.frame.size.width = width
         nsView.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
         nsView.layoutManager?.ensureLayout(for: nsView.textContainer!)
-        let contentHeight = nsView.layoutManager?.usedRect(for: nsView.textContainer!).height ?? 18
+        let contentHeight = nsView.layoutManager?.usedRect(for: nsView.textContainer!).height ?? 0
         return CGSize(width: width, height: min(max(contentHeight + 8, 26), 120))
     }
 
