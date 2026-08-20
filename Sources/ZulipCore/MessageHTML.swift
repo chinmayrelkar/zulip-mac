@@ -592,75 +592,98 @@ private struct Parser {
         }
     }
 
-    // A large switch over HTML close tags: the case count is inherent to the
-    // tag set, so complexity is suppressed while each case stays small.
-    // swiftlint:disable:next cyclomatic_complexity
     mutating func close(_ name: String) {
         if let idx = stack.lastIndex(where: { $0.0 == name }) {
             style = stack[idx].1
             stack.removeSubrange(idx...)
         }
         switch name {
-        case "pre":
-            inPre = false
-            let code = codeBuffer.trimmingCharacters(in: .newlines)
-            codeBuffer = ""
-            if !code.isEmpty { blocks.append(.code(code)) }
-        case "blockquote":
-            flushText()
-            quoteDepth = max(0, quoteDepth - 1)
-        case "div":
-            if inSpoiler {
-                inSpoiler = false
-                if !spoilerRuns.isEmpty {
-                    blocks.append(.spoiler(header: spoilerHeader, content: spoilerRuns))
-                }
-                spoilerRuns = []
+        case "pre": closePre()
+        case "blockquote": closeBlockquote()
+        case "div": closeDiv()
+        case "table": closeTable()
+        case "tr": closeRow()
+        case "th", "td": closeCell()
+        case "a": closeLink()
+        case "p", "li": closeParagraph()
+        case "h1", "h2", "h3", "h4", "h5", "h6": closeHeading()
+        default: break
+        }
+    }
+
+    private mutating func closePre() {
+        inPre = false
+        let code = codeBuffer.trimmingCharacters(in: .newlines)
+        codeBuffer = ""
+        if !code.isEmpty { blocks.append(.code(code)) }
+    }
+
+    private mutating func closeBlockquote() {
+        flushText()
+        quoteDepth = max(0, quoteDepth - 1)
+    }
+
+    private mutating func closeDiv() {
+        if inSpoiler {
+            inSpoiler = false
+            if !spoilerRuns.isEmpty {
+                blocks.append(.spoiler(header: spoilerHeader, content: spoilerRuns))
             }
-            if inVideoWrap, let href = pendingHref {
-                if !blocks.contains(where: { if case .media(let src, _, _, .video) = $0 { return src == href } else { return false } }) {
-                    blocks.append(.media(src: href, original: nil, alt: "", kind: .video))
-                }
-                pendingHref = nil
-                inVideoWrap = false
-            }
-        case "table":
-            inTable = false
-            if !tableRows.isEmpty {
-                blocks.append(.table(tableRows))
-            }
-            tableRows = []
-        case "tr":
-            if !currentRowCells.isEmpty {
-                tableRows.append(TableRowData(cells: currentRowCells))
-            }
-            currentRowCells = []
-        case "th", "td":
-            currentRowCells.append(currentCellRuns)
-            currentCellRuns = []
-        case "a":
-            if let href = pendingHref {
-                if isMediaLink(href) && !blocks.contains(where: { block in
-                    if case .media(let src, let original, _, _) = block {
-                        if sameMedia(src, href) { return true }
-                        if let original, sameMedia(original, href) { return true }
-                    }
-                    return false
-                }) {
-                    flushText()
-                    let kind = MediaKind.detect(src: href, contentType: "", animated: href.lowercased().contains("gif"), tag: "img")
-                    blocks.append(.media(src: href, original: href, alt: "", kind: kind))
-                }
+            spoilerRuns = []
+        }
+        if inVideoWrap, let href = pendingHref {
+            if !blocks.contains(where: { if case .media(let src, _, _, .video) = $0 { return src == href } else { return false } }) {
+                blocks.append(.media(src: href, original: nil, alt: "", kind: .video))
             }
             pendingHref = nil
-        case "p", "li":
-            if !inPre { flushText() }
-        case "h1", "h2", "h3", "h4", "h5", "h6":
-            if !inPre { flushText() }
-            inHeadingLevel = nil
-        default:
-            break
+            inVideoWrap = false
         }
+    }
+
+    private mutating func closeTable() {
+        inTable = false
+        if !tableRows.isEmpty {
+            blocks.append(.table(tableRows))
+        }
+        tableRows = []
+    }
+
+    private mutating func closeRow() {
+        if !currentRowCells.isEmpty {
+            tableRows.append(TableRowData(cells: currentRowCells))
+        }
+        currentRowCells = []
+    }
+
+    private mutating func closeCell() {
+        currentRowCells.append(currentCellRuns)
+        currentCellRuns = []
+    }
+
+    private mutating func closeLink() {
+        if let href = pendingHref {
+            if isMediaLink(href) && !blocks.contains(where: { block in
+                if case .media(let src, let original, _, _) = block {
+                    if sameMedia(src, href) { return true }
+                    if let original, sameMedia(original, href) { return true }
+                }
+                return false
+            }) {
+                flushText()
+                let kind = MediaKind.detect(src: href, contentType: "", animated: href.lowercased().contains("gif"), tag: "img")
+                blocks.append(.media(src: href, original: href, alt: "", kind: kind))
+            }
+        }
+        pendingHref = nil
+    }
+
+    private mutating func closeParagraph() {
+        if !inPre { flushText() }
+    }
+
+    private mutating func closeHeading() {
+        if !inPre { flushText() }
+        inHeadingLevel = nil
     }
 
     func mediaSource(_ attrs: [String: String]) -> String {
