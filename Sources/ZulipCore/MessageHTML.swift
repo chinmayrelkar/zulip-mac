@@ -454,18 +454,25 @@ private struct Parser {
                 let alt = attrs["alt"] ?? attrs["title"] ?? ""
                 flushText()
                 if !src.isEmpty {
-                    let original = attrs["data-original-src"] ?? pendingHref
-                    blocks.append(.media(
-                        src: src,
-                        original: original == src ? nil : original,
-                        alt: alt,
-                        kind: MediaKind.detect(
+                    // For GIFs, a linked <img> is just the static preview (e.g. Zulip's
+                    // /external_content proxy) while the wrapping <a> is the animated
+                    // media — skip the preview block so it isn't rendered twice.
+                    // Non-GIF media links keep their thumbnail <img> (original preserved).
+                    let isGifPreview = pendingHref.map { $0.lowercased().contains(".gif") } ?? false
+                    if !isGifPreview {
+                        let original = attrs["data-original-src"] ?? pendingHref
+                        blocks.append(.media(
                             src: src,
-                            contentType: attrs["data-original-content-type"] ?? "",
-                            animated: attrs["data-animated"] != nil || classes.contains("animated"),
-                            tag: "img"
-                        )
-                    ))
+                            original: original == src ? nil : original,
+                            alt: alt,
+                            kind: MediaKind.detect(
+                                src: src,
+                                contentType: attrs["data-original-content-type"] ?? "",
+                                animated: attrs["data-animated"] != nil || classes.contains("animated"),
+                                tag: "img"
+                            )
+                        ))
+                    }
                 }
                 stack.removeLast()
                 style = previous
@@ -585,6 +592,9 @@ private struct Parser {
         }
     }
 
+    // A large switch over HTML close tags: the case count is inherent to the
+    // tag set, so complexity is suppressed while each case stays small.
+    // swiftlint:disable:next cyclomatic_complexity
     mutating func close(_ name: String) {
         if let idx = stack.lastIndex(where: { $0.0 == name }) {
             style = stack[idx].1
@@ -630,11 +640,7 @@ private struct Parser {
             currentCellRuns = []
         case "a":
             if let href = pendingHref {
-                let lower = href.lowercased()
-                let isMediaLink = lower.hasSuffix(".gif") || lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp")
-                    || lower.contains("giphy.com/media/") || lower.contains("media.giphy.com/") || lower.contains("giphy.gif")
-                    || lower.contains("tenor.com/view/") || lower.contains("media.tenor.com/")
-                if isMediaLink && !blocks.contains(where: { block in
+                if isMediaLink(href) && !blocks.contains(where: { block in
                     if case .media(let src, let original, _, _) = block {
                         if sameMedia(src, href) { return true }
                         if let original, sameMedia(original, href) { return true }
@@ -642,7 +648,7 @@ private struct Parser {
                     return false
                 }) {
                     flushText()
-                    let kind = MediaKind.detect(src: href, contentType: "", animated: lower.contains("gif"), tag: "img")
+                    let kind = MediaKind.detect(src: href, contentType: "", animated: href.lowercased().contains("gif"), tag: "img")
                     blocks.append(.media(src: href, original: href, alt: "", kind: kind))
                 }
             }
@@ -681,6 +687,13 @@ private struct Parser {
         if first == second { return true }
         guard let urlFirst = URL(string: first), let urlSecond = URL(string: second) else { return false }
         return !urlFirst.path.isEmpty && urlFirst.path == urlSecond.path
+    }
+
+    func isMediaLink(_ url: String) -> Bool {
+        let lower = url.lowercased()
+        return lower.hasSuffix(".gif") || lower.hasSuffix(".png") || lower.hasSuffix(".jpg") || lower.hasSuffix(".jpeg") || lower.hasSuffix(".webp")
+            || lower.contains("giphy.com/media/") || lower.contains("media.giphy.com/") || lower.contains("giphy.gif")
+            || lower.contains("tenor.com/view/") || lower.contains("media.tenor.com/")
     }
 
     mutating func emit(_ text: String) {

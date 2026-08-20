@@ -76,3 +76,23 @@ final class MediaDedupTests: XCTestCase {
     }
 }
 
+
+final class GifDedupRealHTMLTests: XCTestCase {
+    func testRealZulipGifRendersOnce() {
+        // Real Zulip markup for a Giphy GIF: a plain <a> attachment link, plus a
+        // message_inline_image div with a static /external_content proxy <img>.
+        let html = #"""
+        <p><strong>LAST DAY</strong> <br>
+        <a href="https://media1.giphy.com/media/abc123/x.gif?cid=x&amp;ct=g">.</a></p>
+        <div class="message_inline_image"><a href="https://media.giphy.com/media/abc123/x.gif?cid=x&amp;ct=g" title=".">
+        <img src="/external_content/74c4031d2ad44d6553"></a></div>
+        """#
+        let media = MessageHTML.blocks(html).compactMap { block -> (src: String, kind: MediaKind)? in
+            if case .media(let src, _, _, let kind) = block { return (src, kind) }
+            return nil
+        }
+        XCTAssertEqual(media.count, 1, "should be exactly one media block, got \(media.count)")
+        XCTAssertTrue(media[0].kind == .gif, "the single block should be the animated gif, got \(media[0].kind)")
+        XCTAssertTrue(media[0].src.contains("giphy"), "block should be the real giphy URL, got \(media[0].src)")
+    }
+}
