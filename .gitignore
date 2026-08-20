@@ -1,0 +1,21 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Built app bundle
+dist/
+
+# macOS
+.DS_Store
+
+# Local credentials / state (never commit)
+credentials
+.zuliprc
+
+# Editor / tooling
+.idea/
+.vscode/
+*.swp
+
+# pi-lens cache
+.pi-lens/
