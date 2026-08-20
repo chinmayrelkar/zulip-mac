@@ -60,38 +60,20 @@ public struct ComposeBar: View {
                     .frame(minHeight: 34, maxHeight: 120)
                 } else {
                     ZStack(alignment: .topLeading) {
-                        // Invisible sizing text defines the editor's height: one line
-                        // when empty, growing with the draft (capped at 120pt).
-                        Text(currentDraftText.isEmpty ? " " : currentDraftText)
-                            .font(.system(size: settings.fontSize))
-                            .lineLimit(nil)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                            .frame(maxWidth: .infinity, maxHeight: 112, alignment: .topLeading)
-                            .opacity(0)
-                            .allowsHitTesting(false)
-
                         if currentDraftText.isEmpty {
                             Text("Message \(store.tabTitle(tab))…")
                                 .font(.system(size: settings.fontSize))
                                 .foregroundStyle(.secondary.opacity(0.6))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 4)
                         }
 
-                        TextEditor(text: draft)
-                            .font(.system(size: settings.fontSize))
-                            .scrollContentBackground(.hidden)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 4)
-                            .focused($isEditorFocused)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .onKeyPress(keys: [.return]) { press in
-                                if press.modifiers.contains(.shift) { return .ignored }
-                                Task { await store.send() }
-                                return .handled
-                            }
+                        GrowingTextEditor(
+                            text: draft,
+                            fontSize: settings.fontSize,
+                            focused: Binding(get: { isEditorFocused }, set: { isEditorFocused = $0 }),
+                            onSend: { Task { await store.send() } }
+                        )
                     }
                     .frame(minHeight: 26, maxHeight: 120, alignment: .top)
                 }
@@ -321,5 +303,72 @@ private struct TypingDotsAnimation: View {
 
     private func dotOffset(for index: Int) -> CGFloat {
         dotOffset
+    }
+}
+
+/// An NSTextView-backed editor that sizes to its content (one line when empty,
+/// growing with the draft, capped at 120pt). SwiftUI's `TextEditor` has a fixed
+/// minimum intrinsic height that made the box too tall for a single line.
+private struct GrowingTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var fontSize: CGFloat
+    @Binding var focused: Bool
+    var onSend: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextView {
+        let textView = NSTextView()
+        textView.isRichText = false
+        textView.drawsBackground = false
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.heightTracksTextView = false
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainerInset = NSSize(width: 0, height: 4)
+        textView.font = NSFont.systemFont(ofSize: fontSize)
+        textView.delegate = context.coordinator
+        return textView
+    }
+
+    func updateNSView(_ textView: NSTextView, context: Context) {
+        if textView.string != text {
+            textView.string = text
+        }
+        textView.font = NSFont.systemFont(ofSize: fontSize)
+        if focused, let window = textView.window, window.firstResponder !== textView {
+            window.makeFirstResponder(textView)
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
+        let width = proposal.width ?? 200
+        nsView.frame.size.width = width
+        nsView.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
+        nsView.layoutManager?.ensureLayout(for: nsView.textContainer!)
+        let contentHeight = nsView.layoutManager?.usedRect(for: nsView.textContainer!).height ?? 18
+        return CGSize(width: width, height: min(max(contentHeight + 8, 26), 120))
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: GrowingTextEditor
+        init(_ parent: GrowingTextEditor) { self.parent = parent }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView = notification.object as? NSTextView else { return }
+            parent.text = textView.string
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                if !(NSEvent.modifierFlags.contains(.shift)) {
+                    parent.onSend()
+                    return true
+                }
+            }
+            return false
+        }
     }
 }
