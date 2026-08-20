@@ -11,6 +11,7 @@ public struct ComposeBar: View {
     @State private var isDropTargeted = false
     @State private var isPreviewMode = false
     @State private var showEmojiPicker = false
+    @State private var editorHeight: CGFloat = 26
     @FocusState private var isEditorFocused: Bool
 
     public init(store: Store, tab: ConversationTab) {
@@ -72,10 +73,11 @@ public struct ComposeBar: View {
                             text: draft,
                             fontSize: settings.fontSize,
                             focused: Binding(get: { isEditorFocused }, set: { isEditorFocused = $0 }),
+                            contentHeight: $editorHeight,
                             onSend: { Task { await store.send() } }
                         )
                     }
-                    .frame(minHeight: 26, maxHeight: 120, alignment: .top)
+                    .frame(height: clampedEditorHeight)
                 }
 
                 if showFormatting {
@@ -195,6 +197,10 @@ public struct ComposeBar: View {
 
     private var currentDraftText: String {
         store.activeTab?.draft ?? tab.draft
+    }
+
+    private var clampedEditorHeight: CGFloat {
+        min(max(editorHeight, 26), 120)
     }
 
     private var showFormatting: Bool {
@@ -322,6 +328,7 @@ private struct GrowingTextEditor: NSViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat
     @Binding var focused: Bool
+    @Binding var contentHeight: CGFloat
     var onSend: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -350,8 +357,10 @@ private struct GrowingTextEditor: NSViewRepresentable {
         // Force the actual frame height to the content height so the box is
         // one line when empty, regardless of NSTextView's intrinsic size.
         textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-        let contentHeight = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
-        textView.frame.size.height = min(max(contentHeight + 8, 26), 120)
+        let measured = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
+        let height = min(max(measured + 8, 26), 120)
+        textView.frame.size.height = height
+        contentHeight = height
         if focused, let window = textView.window, window.firstResponder !== textView {
             window.makeFirstResponder(textView)
         }
