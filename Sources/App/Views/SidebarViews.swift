@@ -8,6 +8,7 @@ public struct ChannelSidebar: View {
     @Environment(AppSettings.self) private var settings
     @Environment(\.focusedColumn) private var focusedColumn
     @FocusState private var isListFocused: Bool
+    @FocusState private var isFilterFocused: Bool
     @State private var isViewsExpanded = true
     @State private var isDMsExpanded = true
     @State private var isChannelsExpanded = true
@@ -56,6 +57,23 @@ public struct ChannelSidebar: View {
                 TextField("Filter channels", text: $store.channelQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12))
+                    .focused($isFilterFocused)
+                    .onKeyPress(.downArrow) {
+                        isFilterFocused = false
+                        isListFocused = true
+                        return .handled
+                    }
+                    .onKeyPress(.return) {
+                        isFilterFocused = false
+                        isListFocused = true
+                        return .handled
+                    }
+                    .onKeyPress(.escape) {
+                        store.channelQuery = ""
+                        isFilterFocused = false
+                        isListFocused = true
+                        return .handled
+                    }
                 if !store.channelQuery.isEmpty {
                     Button {
                         store.channelQuery = ""
@@ -72,7 +90,7 @@ public struct ChannelSidebar: View {
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.8), in: RoundedRectangle(cornerRadius: 7))
             .overlay(
                 RoundedRectangle(cornerRadius: 7)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    .stroke(isFilterFocused ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: isFilterFocused ? 1.2 : 0.5)
             )
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
@@ -273,7 +291,36 @@ public struct ChannelSidebar: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
+            .focusable()
+            .focusEffectDisabled()
             .focused($isListFocused)
+            .onKeyPress(.rightArrow) {
+                guard isListFocused else { return .ignored }
+                if store.showCenterPane && store.hasTopicsForSelectedSource {
+                    focusedColumn.wrappedValue = .topics
+                    store.focusTopicListTrigger += 1
+                    return .handled
+                } else if store.activeTab != nil {
+                    focusedColumn.wrappedValue = .messages
+                    store.focusMessagesTrigger += 1
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.return) {
+                guard isListFocused else { return .ignored }
+                if store.showCenterPane && store.hasTopicsForSelectedSource {
+                    focusedColumn.wrappedValue = .topics
+                    store.focusTopicListTrigger += 1
+                    return .handled
+                } else if store.activeTab != nil {
+                    focusedColumn.wrappedValue = .messages
+                    store.focusMessagesTrigger += 1
+                    return .handled
+                }
+                return .ignored
+            }
             .onChange(of: focusedColumn.wrappedValue) { _, new in
                 if new == .sidebar { isListFocused = true }
             }

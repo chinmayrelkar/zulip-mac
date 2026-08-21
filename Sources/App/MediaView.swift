@@ -89,7 +89,7 @@ public struct MediaBlockView: View {
     public var onOpen: ((LightboxItem) -> Void)?
 
     @State private var data: Data?
-    @State private var player: AVPlayer?
+    @State private var playURL: URL?
     @State private var failed = false
 
     public init(src: String, original: String? = nil, alt: String, kind: MediaKind, loader: MediaLoader? = nil, onOpen: ((LightboxItem) -> Void)? = nil) {
@@ -107,29 +107,32 @@ public struct MediaBlockView: View {
             case .image:
                 stillImage
             case .gif:
-                if let data {
-                    AnimatedImage(data: data)
-                        .frame(maxWidth: 480, maxHeight: 320, alignment: .leading)
-                } else {
-                    placeholder
-                }
+                gifImage
             case .video:
-                if let player {
-                    VideoPlayer(player: player)
-                        .frame(minHeight: 180, maxHeight: 320)
-                } else {
+                if let playURL {
+                    NativeVideoPlayer(url: playURL)
+                        .frame(minWidth: 240, maxWidth: 480, minHeight: 180, maxHeight: 300)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else if failed {
                     placeholder
+                } else {
+                    ProgressView()
+                        .frame(width: 240, height: 180)
                 }
             case .audio:
-                if let player {
-                    VideoPlayer(player: player)
-                        .frame(height: 48)
-                } else {
+                if let playURL {
+                    NativeVideoPlayer(url: playURL)
+                        .frame(maxWidth: 400, minHeight: 44, maxHeight: 52)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else if failed {
                     placeholder
+                } else {
+                    ProgressView()
+                        .frame(width: 200, height: 44)
                 }
             }
         }
-        .help(alt.isEmpty ? "Open image" : alt)
+        .help(alt.isEmpty ? "Open media" : alt)
         .contentShape(Rectangle())
         .onTapGesture { openIfPossible() }
         .onHover { hovering in
@@ -171,6 +174,29 @@ public struct MediaBlockView: View {
     }
 
     @ViewBuilder
+    private var gifImage: some View {
+        if let data, let image = NSImage(data: data) {
+            let imgSize = image.size
+            let maxW: CGFloat = 460
+            let maxH: CGFloat = 300
+            let (targetW, targetH): (CGFloat, CGFloat) = {
+                if imgSize.width > 0 && imgSize.height > 0 {
+                    let wRatio = maxW / imgSize.width
+                    let hRatio = maxH / imgSize.height
+                    let scale = min(1.0, min(wRatio, hRatio))
+                    return (imgSize.width * scale, imgSize.height * scale)
+                }
+                return (min(maxW, 360), min(maxH, 240))
+            }()
+            AnimatedImage(data: data)
+                .frame(width: targetW, height: targetH)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        } else {
+            placeholder
+        }
+    }
+
+    @ViewBuilder
     private var placeholder: some View {
         if failed {
             Text(alt.isEmpty ? "media failed to load" : alt)
@@ -182,6 +208,7 @@ public struct MediaBlockView: View {
         }
     }
 
+    @MainActor
     private func load() async {
         guard let loader else {
             failed = true
@@ -193,11 +220,45 @@ public struct MediaBlockView: View {
             failed = data == nil
         case .video, .audio:
             if let url = await loader.playURL(for: fullSrc) {
-                player = AVPlayer(url: url)
+                playURL = url
             } else {
                 failed = true
             }
         }
+    }
+}
+
+public struct NativeVideoPlayer: NSViewRepresentable {
+    public let url: URL
+    public var autoPlay: Bool = false
+
+    public init(url: URL, autoPlay: Bool = false) {
+        self.url = url
+        self.autoPlay = autoPlay
+    }
+
+    public func makeNSView(context: Context) -> AVPlayerView {
+        let playerView = AVPlayerView()
+        playerView.controlsStyle = .inline
+        playerView.showsFullScreenToggleButton = true
+        let player = AVPlayer(url: url)
+        playerView.player = player
+        if autoPlay {
+            player.play()
+        }
+        return playerView
+    }
+
+    public func updateNSView(_ nsView: AVPlayerView, context: Context) {
+        if let currentAsset = (nsView.player?.currentItem?.asset as? AVURLAsset), currentAsset.url != url {
+            let player = AVPlayer(url: url)
+            nsView.player = player
+        }
+    }
+
+    public static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
+        nsView.player?.pause()
+        nsView.player = nil
     }
 }
 
@@ -214,12 +275,16 @@ public struct AnimatedImage: NSViewRepresentable {
         view.animates = true
         view.canDrawSubviewsIntoLayer = true
         view.image = NSImage(data: data)
+        view.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+        view.setContentHuggingPriority(.defaultHigh, for: .vertical)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return view
     }
 
     public func updateNSView(_ view: NSImageView, context: Context) {
         view.animates = true
-        if view.image?.tiffRepresentation != NSImage(data: data)?.tiffRepresentation {
+        if view.image == nil {
             view.image = NSImage(data: data)
         }
     }
@@ -265,10 +330,21 @@ public struct LightboxView: View {
             }
         }
         .focusable()
+        .onExitCommand { close() }
         .onKeyPress(.escape) { close(); return .handled }
         .onKeyPress(keys: ["+", "="]) { _ in bump(0.25); return .handled }
         .onKeyPress(keys: ["-", "_"]) { _ in bump(-0.25); return .handled }
         .onKeyPress("0") { reset(); return .handled }
+        .onKeyPress(keys: ["c"]) { press in
+            guard !press.modifiers.contains(.control) else { return .ignored }
+            copyToClipboard()
+            return .handled
+        }
+        .onKeyPress(keys: ["s"]) { press in
+            guard !press.modifiers.contains(.control) else { return .ignored }
+            saveToDisk()
+            return .handled
+        }
         .task(id: item.fullSrc) {
             guard item.fullSrc != item.src else { return }
             fullData = await loader?.data(for: item.fullSrc)

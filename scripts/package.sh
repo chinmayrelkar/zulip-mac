@@ -45,4 +45,15 @@ cat > "$app/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 codesign --force --sign - "$app" >/dev/null
-echo "$app"
+echo "Created $app"
+
+dmg="dist/ZulipMac.dmg"
+rm -f "$dmg"
+staging="dist/dmg_staging"
+rm -rf "$staging"
+mkdir -p "$staging"
+cp -R "$app" "$staging/"
+ln -s /Applications "$staging/Applications"
+hdiutil create -volname "Zulip" -srcfolder "$staging" -ov -format UDZO "$dmg" >/dev/null
+rm -rf "$staging"
+echo "Created $dmg"

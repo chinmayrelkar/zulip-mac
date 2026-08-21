@@ -11,18 +11,20 @@ public struct MessageColumn: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            TabStrip(store: store)
-            Divider().opacity(0.6)
+            if !store.tabs.isEmpty {
+                TabStrip(store: store)
+                Divider().opacity(0.6)
+            }
             if let tab = store.activeTab {
                 ConversationHeader(store: store, tab: tab)
                 Divider().opacity(0.6)
                 MessageList(store: store, tab: tab)
-                    .id("\(tab.id):\(tab.narrow.title)")
+                    .id(tab.id)
                 if tab.narrow.isConversation {
                     ComposeBar(store: store, tab: tab)
                 }
             } else {
-                ShortcutHelpView()
+                ShortcutHelpView(embedded: true)
             }
         }
     }
@@ -328,6 +330,8 @@ public struct MessageList: View {
     @Bindable var store: Store
     let tab: ConversationTab
     @Environment(AppSettings.self) private var settings
+    @Environment(\.focusedColumn) private var focusedColumn
+    @FocusState private var isMessageListFocused: Bool
 
     public init(store: Store, tab: ConversationTab) {
         self.store = store
@@ -349,9 +353,11 @@ public struct MessageList: View {
             return thread.messages
         }()
 
+        let currentIndex = visibleMessages.firstIndex(where: { $0.id == store.selectedMessageID }) ?? (visibleMessages.count - 1)
+
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: settings.density.listSpacing) {
+                LazyVStack(alignment: .leading, spacing: settings.density.listSpacing) {
                     if !thread.foundOldest && !visibleMessages.isEmpty {
                         Button {
                             store.loadOlder(for: tab.id)
@@ -400,20 +406,249 @@ public struct MessageList: View {
                 .padding(.vertical, 8)
             }
             .defaultScrollAnchor(.bottom)
-            .onAppear {
-                scrollToBottom(proxy: proxy)
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isMessageListFocused)
+            .onKeyPress(.downArrow) {
+                guard isMessageListFocused else { return .ignored }
+                if currentIndex < visibleMessages.count - 1 {
+                    store.selectedMessageID = visibleMessages[currentIndex + 1].id
+                    return .handled
+                }
+                return .handled
             }
-            .task {
-                try? await Task.sleep(nanoseconds: 50_000_000)
-                scrollToBottom(proxy: proxy)
-                try? await Task.sleep(nanoseconds: 150_000_000)
-                scrollToBottom(proxy: proxy)
+            .onKeyPress(keys: ["j"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if currentIndex < visibleMessages.count - 1 {
+                    store.selectedMessageID = visibleMessages[currentIndex + 1].id
+                    return .handled
+                }
+                return .handled
+            }
+            .onKeyPress(.upArrow) {
+                guard isMessageListFocused else { return .ignored }
+                if currentIndex > 0 {
+                    store.selectedMessageID = visibleMessages[currentIndex - 1].id
+                    return .handled
+                } else if !thread.foundOldest {
+                    store.loadOlder(for: tab.id)
+                    return .handled
+                }
+                return .handled
+            }
+            .onKeyPress(keys: ["k"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if currentIndex > 0 {
+                    store.selectedMessageID = visibleMessages[currentIndex - 1].id
+                    return .handled
+                } else if !thread.foundOldest {
+                    store.loadOlder(for: tab.id)
+                    return .handled
+                }
+                return .handled
+            }
+            .onKeyPress(.pageDown) {
+                guard isMessageListFocused else { return .ignored }
+                let next = min(currentIndex + 5, visibleMessages.count - 1)
+                if visibleMessages.indices.contains(next) {
+                    store.selectedMessageID = visibleMessages[next].id
+                }
+                return .handled
+            }
+            .onKeyPress(.pageUp) {
+                guard isMessageListFocused else { return .ignored }
+                let prev = max(currentIndex - 5, 0)
+                if visibleMessages.indices.contains(prev) {
+                    store.selectedMessageID = visibleMessages[prev].id
+                }
+                return .handled
+            }
+            .onKeyPress(.home) {
+                guard isMessageListFocused else { return .ignored }
+                if let first = visibleMessages.first {
+                    store.selectedMessageID = first.id
+                }
+                return .handled
+            }
+            .onKeyPress(.end) {
+                guard isMessageListFocused else { return .ignored }
+                if let last = visibleMessages.last {
+                    store.selectedMessageID = last.id
+                }
+                return .handled
+            }
+            .onKeyPress(.return) {
+                guard isMessageListFocused else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    store.quoteAndReply(message: msg)
+                    focusedColumn.wrappedValue = .composer
+                    store.focusComposerTrigger += 1
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["r", "q"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    store.quoteAndReply(message: msg)
+                    focusedColumn.wrappedValue = .composer
+                    store.focusComposerTrigger += 1
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["i", "a"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if tab.narrow.isConversation {
+                    focusedColumn.wrappedValue = .composer
+                    store.focusComposerTrigger += 1
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["s"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    store.toggleStar(message: msg)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["e"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }), msg.senderID == store.selfUserID {
+                    store.editingMessage = msg
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["d"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }), msg.senderID == store.selfUserID {
+                    Task { await store.deleteMessage(messageID: msg.id) }
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.delete) {
+                guard isMessageListFocused else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }), msg.senderID == store.selfUserID {
+                    Task { await store.deleteMessage(messageID: msg.id) }
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["c"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    let text = MessageHTML.plain(msg.displayHTML)
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["l"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    let link = "\(store.site.absoluteString)/#narrow/id/\(msg.id)"
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(link, forType: .string)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["h"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }), msg.lastEdit != nil {
+                    Task { await store.loadHistory(for: msg) }
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["v", "g"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }), let streamID = msg.streamID, let streamName = msg.streamName {
+                    store.openTopic(streamID: streamID, streamName: streamName, topic: msg.topic)
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(keys: ["1", "2", "3", "4", "5"]) { press in
+                guard isMessageListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.option), !press.modifiers.contains(.control) else { return .ignored }
+                if let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) {
+                    let quickEmoji: [(String, String, String)] = [
+                        ("1", "+1", "1f44d"),
+                        ("2", "heart", "2764"),
+                        ("3", "joy", "1f602"),
+                        ("4", "rocket", "1f680"),
+                        ("5", "bulb", "1f4a1")
+                    ]
+                    if let item = quickEmoji.first(where: { $0.0 == press.characters }) {
+                        store.toggleReaction(message: msg, emojiName: item.1, emojiCode: item.2, reactionType: "unicode_emoji")
+                        return .handled
+                    }
+                }
+                return .ignored
+            }
+            .onKeyPress(.space) {
+                guard isMessageListFocused else { return .ignored }
+                if openMediaLightboxForSelectedMessage(in: visibleMessages) {
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress(.leftArrow) {
+                guard isMessageListFocused else { return .ignored }
+                if store.showCenterPane && store.hasTopicsForSelectedSource {
+                    focusedColumn.wrappedValue = .topics
+                    store.focusTopicListTrigger += 1
+                } else {
+                    focusedColumn.wrappedValue = .sidebar
+                }
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard isMessageListFocused else { return .ignored }
+                if store.showCenterPane && store.hasTopicsForSelectedSource {
+                    focusedColumn.wrappedValue = .topics
+                    store.focusTopicListTrigger += 1
+                } else {
+                    focusedColumn.wrappedValue = .sidebar
+                }
+                return .handled
+            }
+            .onAppear {
+                if store.selectedMessageID == nil {
+                    store.selectedMessageID = visibleMessages.last?.id
+                }
             }
             .overlay {
                 if thread.isLoading && thread.messages.isEmpty {
                     ProgressView("Loading messages…")
                 } else if thread.messages.isEmpty && !thread.isLoading {
                     ContentUnavailableView("No messages", systemImage: "tray")
+                }
+            }
+            .onChange(of: focusedColumn.wrappedValue) { _, new in
+                if new == .messages {
+                    isMessageListFocused = true
+                    if store.selectedMessageID == nil || !visibleMessages.contains(where: { $0.id == store.selectedMessageID }) {
+                        store.selectedMessageID = visibleMessages.last?.id
+                    }
+                }
+            }
+            .onChange(of: store.focusMessagesTrigger) { _, _ in
+                isMessageListFocused = true
+                if store.selectedMessageID == nil || !visibleMessages.contains(where: { $0.id == store.selectedMessageID }) {
+                    store.selectedMessageID = visibleMessages.last?.id
+                }
+            }
+            .onChange(of: store.selectedMessageID) { _, id in
+                if let id, isMessageListFocused {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                 }
             }
             .onChange(of: thread.messages.count) { _, _ in
@@ -428,6 +663,27 @@ public struct MessageList: View {
                 scrollToBottom(proxy: proxy)
             }
         }
+    }
+
+    private func openMediaLightboxForSelectedMessage(in visibleMessages: [Message]) -> Bool {
+        guard let msg = visibleMessages.first(where: { $0.id == store.selectedMessageID }) else { return false }
+        let resolved = HTMLRewrite.resolve(msg.displayHTML, site: store.site)
+        let blocks = MessageHTML.blocks(resolved)
+        for block in blocks {
+            if case .media(let src, let original, let alt, let kind) = block {
+                if kind == .image || kind == .gif {
+                    Task {
+                        let displaySrc = MediaURL.sharperPreview(src)
+                        let fullSrc = (original != nil && !original!.isEmpty) ? original! : displaySrc
+                        if let data = await store.media?.data(firstOf: [displaySrc, src, original ?? ""]) {
+                            store.lightbox = LightboxItem(src: displaySrc, fullSrc: fullSrc, data: data, alt: alt, kind: kind)
+                        }
+                    }
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = false) {
@@ -597,6 +853,7 @@ public struct SingleMessageRow: View {
     public let isFirstInBlock: Bool
     @State private var isHovering = false
     @Environment(AppSettings.self) private var settings
+    @Environment(\.focusedColumn) private var focusedColumn
 
     public init(store: Store, message: Message, isFirstInBlock: Bool) {
         self.store = store
@@ -605,6 +862,8 @@ public struct SingleMessageRow: View {
     }
 
     public var body: some View {
+        let isKeyboardSelected = store.selectedMessageID == message.id && (focusedColumn.wrappedValue == .messages)
+
         HStack(alignment: .top, spacing: 10) {
             if isFirstInBlock {
                 Button {
@@ -710,10 +969,13 @@ public struct SingleMessageRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, settings.density.rowSpacing(isFirst: isFirstInBlock))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
         .background(
             isHovering ? hoverRowColor : Color.clear,
             in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isKeyboardSelected ? Color.accentColor.opacity(0.6) : Color.clear, lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
             if isHovering {
@@ -937,13 +1199,36 @@ public struct MessageBody: View {
         fontSize: CGFloat = 13.5,
         fontFamily: String = "System Default"
     ) -> Text {
-        let fragments: [Text] = runs.map { run in
-            if let url = run.customEmojiURL, let image = emojiImages[url] {
-                return Text(Image(nsImage: resized(image, to: fontSize + 3)))
-            }
-            return Text(piece(run, dark: dark, fontSize: fontSize, fontFamily: fontFamily))
+        let hasCustomEmoji = runs.contains { run in
+            if let url = run.customEmojiURL, emojiImages[url] != nil { return true }
+            return false
         }
-        return fragments.reduce(Text("")) { $0 + $1 }
+
+        if !hasCustomEmoji {
+            var full = AttributedString()
+            for run in runs {
+                full.append(piece(run, dark: dark, fontSize: fontSize, fontFamily: fontFamily))
+            }
+            return Text(full)
+        }
+
+        var combined = Text("")
+        var currentChunk = AttributedString()
+        for run in runs {
+            if let url = run.customEmojiURL, let image = emojiImages[url] {
+                if !currentChunk.characters.isEmpty {
+                    combined = combined + Text(currentChunk)
+                    currentChunk = AttributedString()
+                }
+                combined = combined + Text(Image(nsImage: resized(image, to: fontSize + 3)))
+            } else {
+                currentChunk.append(piece(run, dark: dark, fontSize: fontSize, fontFamily: fontFamily))
+            }
+        }
+        if !currentChunk.characters.isEmpty {
+            combined = combined + Text(currentChunk)
+        }
+        return combined
     }
 
     private static func piece(

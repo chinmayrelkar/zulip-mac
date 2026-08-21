@@ -106,6 +106,13 @@ struct ZulipMacApp: App {
                 }
                 .keyboardShortcut("r", modifiers: [.command])
             }
+
+            CommandGroup(replacing: .help) {
+                Button("Keyboard Shortcuts…") {
+                    store.showShortcutHelp.toggle()
+                }
+                .keyboardShortcut("/", modifiers: [.command])
+            }
         }
 
         Settings {
