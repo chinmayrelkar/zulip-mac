@@ -51,4 +51,14 @@ Search is the Zulip narrow language (`channel:`, `topic:`, `sender:me`, `is:ment
 
 ## Build
 
-Swift 6, macOS 14+. `swift build && ./scripts/package.sh` produces `dist/ZulipMac.app` (ad-hoc signed).
+Swift 6, macOS 14+. `swift build && ./scripts/package.sh` produces `dist/ZulipMac.app` (ad-hoc signed) and `dist/ZulipMac.dmg`.
+
+## Disclaimer & Trademark
+
+ZulipMac is an independent, unofficial third-party client. It is not affiliated with, maintained by, or endorsed by Kandra Labs, Inc.
+
+Zulip is a registered trademark of Kandra Labs, Inc.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
