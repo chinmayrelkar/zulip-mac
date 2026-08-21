@@ -6,15 +6,26 @@ extension Store {
         tabs.first { $0.id == activeTabID }
     }
 
+    public var hasTopicsForSelectedSource: Bool {
+        switch selectedSource {
+        case .recentTopics, .mentions, .directMessages, .channel:
+            return true
+        case .allMessages, .starred, nil:
+            return false
+        }
+    }
+
     public func channelLastActivity(_ streamID: Int) -> Int {
         var highest = channelActivity[streamID] ?? 0
-        if let topics = topicsByStream[streamID], let maxTopicID = topics.map(\.maxID).max() {
-            highest = max(highest, maxTopicID)
+        if let topics = topicsByStream[streamID] {
+            for t in topics {
+                if t.maxID > highest { highest = t.maxID }
+            }
         }
         if let streamUnreads = unread.stream[streamID] {
             for (_, ids) in streamUnreads {
-                if let maxUnread = ids.max() {
-                    highest = max(highest, maxUnread)
+                for id in ids {
+                    if id > highest { highest = id }
                 }
             }
         }
@@ -25,16 +36,18 @@ extension Store {
         let filtered = channelQuery.isEmpty
             ? channels
             : channels.filter { $0.name.localizedCaseInsensitiveContains(channelQuery) }
+        var activityCache: [Int: Int] = [:]
+        for ch in filtered {
+            activityCache[ch.streamID] = channelLastActivity(ch.streamID)
+        }
         return filtered.sorted { lhs, rhs in
             if lhs.pinToTop != rhs.pinToTop { return lhs.pinToTop }
             if lhs.isMuted != rhs.isMuted { return !lhs.isMuted }
-            // Recency: most recently active channels first.
-            let lhsAct = channelLastActivity(lhs.streamID)
-            let rhsAct = channelLastActivity(rhs.streamID)
+            let lhsAct = activityCache[lhs.streamID] ?? 0
+            let rhsAct = activityCache[rhs.streamID] ?? 0
             if lhsAct != rhsAct {
                 return lhsAct > rhsAct
             }
-            // Relevance: then channels with unread messages.
             let lhsUnread = unread.channelCount(lhs.streamID)
             let rhsUnread = unread.channelCount(rhs.streamID)
             if lhsUnread != rhsUnread {
@@ -82,6 +95,10 @@ extension Store {
     private func buildChannelGroups(from channelList: [Channel]) -> [ChannelFolderGroup] {
         var folderMap: [String: [Channel]] = [:]
         var directChannels: [Channel] = []
+        var activityCache: [Int: Int] = [:]
+        for ch in channelList {
+            activityCache[ch.streamID] = channelLastActivity(ch.streamID)
+        }
 
         for ch in channelList {
             if ch.name.contains("/") {
@@ -99,11 +116,9 @@ extension Store {
 
         var result: [ChannelFolderGroup] = []
 
-        // Add folders sorted by most recent activity (recency-first), so active
-        // folders float to the top instead of hiding under alphabetical order.
         for (folder, chs) in folderMap.sorted(by: { lhs, rhs in
-            let lhsActivity = lhs.value.map { channelLastActivity($0.streamID) }.max() ?? 0
-            let rhsActivity = rhs.value.map { channelLastActivity($0.streamID) }.max() ?? 0
+            let lhsActivity = lhs.value.compactMap { activityCache[$0.streamID] }.max() ?? 0
+            let rhsActivity = rhs.value.compactMap { activityCache[$0.streamID] }.max() ?? 0
             if lhsActivity != rhsActivity {
                 return lhsActivity > rhsActivity
             }
@@ -114,8 +129,8 @@ extension Store {
                 name: folder,
                 isFolder: true,
                 channels: chs.sorted { lhs, rhs in
-                    let lAct = channelLastActivity(lhs.streamID)
-                    let rAct = channelLastActivity(rhs.streamID)
+                    let lAct = activityCache[lhs.streamID] ?? 0
+                    let rAct = activityCache[rhs.streamID] ?? 0
                     if lAct != rAct { return lAct > rAct }
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 },
@@ -123,15 +138,14 @@ extension Store {
             ))
         }
 
-        // Add standalone channels group if any
         if !directChannels.isEmpty {
             let totalUnread = directChannels.reduce(0) { $0 + unread.channelCount($1.streamID) }
             result.append(ChannelFolderGroup(
                 name: "CHANNELS",
                 isFolder: false,
                 channels: directChannels.sorted { lhs, rhs in
-                    let lAct = channelLastActivity(lhs.streamID)
-                    let rAct = channelLastActivity(rhs.streamID)
+                    let lAct = activityCache[lhs.streamID] ?? 0
+                    let rAct = activityCache[rhs.streamID] ?? 0
                     if lAct != rAct { return lAct > rAct }
                     return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
                 },
@@ -157,9 +171,12 @@ extension Store {
         } else if !showResolvedInChannel {
             filtered = filtered.filter { !$0.isResolved }
         }
+        let streamUnread = unread.stream[id]
         return filtered.sorted { lhs, rhs in
-            let lhsActivity = max(lhs.maxID, unread.stream[id]?[lhs.name]?.max() ?? 0)
-            let rhsActivity = max(rhs.maxID, unread.stream[id]?[rhs.name]?.max() ?? 0)
+            let lhsUnreadMax = streamUnread?[lhs.name]?.max() ?? 0
+            let rhsUnreadMax = streamUnread?[rhs.name]?.max() ?? 0
+            let lhsActivity = max(lhs.maxID, lhsUnreadMax)
+            let rhsActivity = max(rhs.maxID, rhsUnreadMax)
             if lhsActivity != rhsActivity {
                 return channelTopicsSortOrder == .newestLast ? lhsActivity < rhsActivity : lhsActivity > rhsActivity
             }
@@ -184,9 +201,10 @@ extension Store {
         let mutedSet = mutedTopics
         let showMuted = showMutedInRecent
         let showUnreadOnly = showUnreadOnlyInRecent
-        let query = topicQuery
+        let query = topicQuery.trimmingCharacters(in: .whitespaces)
         let streamUnreads = unread.stream
         let isNewestLast = recentSortOrder == .newestLast
+        let hasQuery = !query.isEmpty
 
         for channel in channels {
             if !showMuted && channel.isMuted { continue }
@@ -194,12 +212,23 @@ extension Store {
             let channelUnreads = streamUnreads[channel.streamID]
 
             for topic in topics {
-                let isMuted = mutedSet.contains("\(channel.streamID):\(topic.name)") || channel.isMuted
+                let isMuted = channel.isMuted || mutedSet.contains("\(channel.streamID):\(topic.name)")
                 if !showMuted && isMuted { continue }
                 let topicUnreads = channelUnreads?[topic.name]
                 let unreadCount = topicUnreads?.count ?? 0
                 if showUnreadOnly && unreadCount == 0 { continue }
-                let activityID = max(topic.maxID, topicUnreads?.max() ?? 0)
+                if hasQuery {
+                    if !channel.name.localizedCaseInsensitiveContains(query) &&
+                       !topic.name.localizedCaseInsensitiveContains(query) {
+                        continue
+                    }
+                }
+                var activityID = topic.maxID
+                if let topicUnreads {
+                    for u in topicUnreads {
+                        if u > activityID { activityID = u }
+                    }
+                }
 
                 items.append(RecentTopicItem(
                     streamID: channel.streamID,
@@ -214,12 +243,7 @@ extension Store {
                 ))
             }
         }
-        if !query.isEmpty {
-            items = items.filter {
-                $0.streamName.localizedCaseInsensitiveContains(query)
-                    || $0.topic.localizedCaseInsensitiveContains(query)
-            }
-        }
+
         return items.sorted { lhs, rhs in
             if lhs.isResolved != rhs.isResolved {
                 return !lhs.isResolved

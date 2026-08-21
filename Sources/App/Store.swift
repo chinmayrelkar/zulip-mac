@@ -104,12 +104,15 @@ public final class Store {
     // Modals & Sheets
     public var showQuickSwitcher = false
     public var showCommandPalette = false
+    public var showShortcutHelp = false
     public var showNewDMModal = false
     public var showChannelBrowser = false
     public var showStatusModal = false
     public var focusSearchTrigger: Int = 0
     public var focusComposerTrigger: Int = 0
     public var focusTopicListTrigger: Int = 0
+    public var focusMessagesTrigger: Int = 0
+    public var selectedMessageID: Int?
     public var showLeftPane = true
     public var showCenterPane = true
     public var selectedUserForProfile: User?

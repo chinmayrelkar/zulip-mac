@@ -3,7 +3,7 @@ import SwiftUI
 import ZulipCore
 
 enum FocusedColumn: String {
-    case sidebar, topics, composer
+    case sidebar, topics, messages, composer
 }
 
 struct FocusedColumnKey: EnvironmentKey {
@@ -44,6 +44,15 @@ struct ContentView: View {
                         }
                     }
                     .overlay {
+                        if store.showShortcutHelp {
+                            ZStack {
+                                Color.black.opacity(0.4)
+                                    .ignoresSafeArea()
+                                    .onTapGesture { store.showShortcutHelp = false }
+                                ShortcutHelpView(onClose: { store.showShortcutHelp = false })
+                            }
+                            .onExitCommand { store.showShortcutHelp = false }
+                        }
                         if store.showQuickSwitcher {
                             ZStack {
                                 Color.black.opacity(0.4)
@@ -104,19 +113,29 @@ struct ContentView: View {
         })
         .background(
             ZStack {
-                VisualEffectBackground(material: .underWindowBackground)
+                if settings.translucency > 0 {
+                    VisualEffectBackground(material: .underWindowBackground)
+                }
                 Color(nsColor: .windowBackgroundColor)
-                    .opacity(1 - settings.translucency)
+                    .opacity(settings.translucency > 0 ? (1 - settings.translucency) : 1.0)
             }
+            .ignoresSafeArea()
         )
-        .onAppear { makeWindowTranslucent() }
+        .onAppear { updateWindowTranslucency() }
+        .onChange(of: settings.translucency) { _, _ in updateWindowTranslucency() }
     }
 
-    private func makeWindowTranslucent() {
+    private func updateWindowTranslucency() {
         guard let window = NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first else { return }
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        window.titlebarAppearsTransparent = true
+        if settings.translucency > 0 {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.titlebarAppearsTransparent = true
+        } else {
+            window.isOpaque = true
+            window.backgroundColor = .windowBackgroundColor
+            window.titlebarAppearsTransparent = false
+        }
     }
 
     private var workspace: some View {
@@ -136,89 +155,43 @@ struct ContentView: View {
         }
         .environment(\.focusedColumn, $focusedColumn)
         .toolbar { toolbar }
-        .focusable()
-        .onKeyPress(keys: ["f"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.focusSearchTrigger += 1
-            return .handled
-        }
-        .onKeyPress(keys: ["k"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.showQuickSwitcher = true
-            return .handled
-        }
-        .onKeyPress(keys: ["/"]) { press in
-            guard !press.modifiers.contains(.command) else { return .ignored }
-            store.focusSearchTrigger += 1
-            return .handled
-        }
-        .onKeyPress(keys: ["n"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.showNewDMModal = true
-            return .handled
-        }
-        .onKeyPress(keys: ["1"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.selectRecentTopics()
-            return .handled
-        }
-        .onKeyPress(keys: ["2"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.selectAllMessages()
-            return .handled
-        }
-        .onKeyPress(keys: ["3"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.selectMentions()
-            return .handled
-        }
-        .onKeyPress(keys: ["4"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.selectStarred()
-            return .handled
-        }
-        .onKeyPress(keys: ["w"]) { press in
-            guard press.modifiers.contains(.command) else { return .ignored }
-            store.closeActiveTab()
-            return .handled
-        }
-        .onKeyPress(keys: [.tab]) { press in
-            guard press.modifiers.contains(.control) else { return .ignored }
-            store.cycleTab(press.modifiers.contains(.shift) ? -1 : 1)
-            return .handled
-        }
-        .onKeyPress(keys: [.tab]) { press in
-            guard !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
-            let order: [FocusedColumn] = [.sidebar, .topics, .composer].filter { column in
-                switch column {
-                case .sidebar: return store.showLeftPane
-                case .topics: return store.showCenterPane
-                case .composer: return true
-                }
-            }
-            guard !order.isEmpty else { return .handled }
-            let current = focusedColumn
-            let idx = order.firstIndex(of: current) ?? 0
-            let next = press.modifiers.contains(.shift)
-                ? order[(idx - 1 + order.count) % order.count]
-                : order[(idx + 1) % order.count]
-            focusedColumn = next
-            return .handled
-        }
         .onKeyPress(.escape) {
             if searchFocused {
                 searchFocused = false
+                return .handled
+            }
+            if store.showShortcutHelp {
+                store.showShortcutHelp = false
                 return .handled
             }
             if store.showQuickSwitcher {
                 store.showQuickSwitcher = false
                 return .handled
             }
+            if store.showCommandPalette {
+                store.showCommandPalette = false
+                return .handled
+            }
             if store.lightbox != nil {
                 store.lightbox = nil
                 return .handled
             }
-            if focusedColumn != .sidebar {
+            if focusedColumn == .composer {
+                focusedColumn = .messages
+                store.focusMessagesTrigger += 1
+                return .handled
+            }
+            if focusedColumn == .messages {
+                if store.showCenterPane && store.hasTopicsForSelectedSource {
+                    focusedColumn = .topics
+                    store.focusTopicListTrigger += 1
+                    return .handled
+                } else {
+                    focusedColumn = .sidebar
+                    return .handled
+                }
+            }
+            if focusedColumn == .topics {
                 focusedColumn = .sidebar
                 return .handled
             }

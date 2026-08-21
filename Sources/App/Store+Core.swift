@@ -308,7 +308,6 @@ extension Store {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
         activeTabID = id
         syncSelection(to: tab.narrow)
-        focusComposerTrigger += 1
         if threads[id] == nil {
             loadTabMessages(for: id)
         }

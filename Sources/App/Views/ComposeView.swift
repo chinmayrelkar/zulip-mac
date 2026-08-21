@@ -11,7 +11,6 @@ public struct ComposeBar: View {
     @State private var isDropTargeted = false
     @State private var isPreviewMode = false
     @State private var showEmojiPicker = false
-    @State private var editorHeight: CGFloat = 26
     @FocusState private var isEditorFocused: Bool
 
     public init(store: Store, tab: ConversationTab) {
@@ -60,24 +59,24 @@ public struct ComposeBar: View {
                     }
                     .frame(minHeight: 34, maxHeight: 120)
                 } else {
-                    ZStack(alignment: .topLeading) {
-                        if currentDraftText.isEmpty {
-                            Text("Message \(store.tabTitle(tab))…")
-                                .font(.system(size: settings.fontSize))
-                                .foregroundStyle(.secondary.opacity(0.6))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 4)
+                    TextField(placeholderText, text: draft, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: settings.fontSize))
+                        .lineLimit(1...5)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .focused($isEditorFocused)
+                        .onSubmit {
+                            Task { await store.send() }
                         }
-
-                        GrowingTextEditor(
-                            text: draft,
-                            fontSize: settings.fontSize,
-                            focused: Binding(get: { isEditorFocused }, set: { isEditorFocused = $0 }),
-                            contentHeight: $editorHeight,
-                            onSend: { Task { await store.send() } }
-                        )
-                    }
-                    .frame(height: clampedEditorHeight)
+                        .onKeyPress(.return) {
+                            if NSEvent.modifierFlags.contains(.shift) {
+                                return .ignored
+                            } else {
+                                Task { await store.send() }
+                                return .handled
+                            }
+                        }
                 }
 
                 if showFormatting {
@@ -195,12 +194,12 @@ public struct ComposeBar: View {
         }
     }
 
-    private var currentDraftText: String {
-        store.activeTab?.draft ?? tab.draft
+    private var placeholderText: String {
+        "Message \(store.tabTitle(tab))…"
     }
 
-    private var clampedEditorHeight: CGFloat {
-        min(max(editorHeight, 26), 120)
+    private var currentDraftText: String {
+        store.activeTab?.draft ?? tab.draft
     }
 
     private var showFormatting: Bool {
@@ -318,80 +317,5 @@ private struct TypingDotsAnimation: View {
 
     private func dotOffset(for index: Int) -> CGFloat {
         dotOffset
-    }
-}
-
-/// An NSTextView-backed editor that sizes to its content (one line when empty,
-/// growing with the draft, capped at 120pt). SwiftUI's `TextEditor` has a fixed
-/// minimum intrinsic height that made the box too tall for a single line.
-private struct GrowingTextEditor: NSViewRepresentable {
-    @Binding var text: String
-    var fontSize: CGFloat
-    @Binding var focused: Bool
-    @Binding var contentHeight: CGFloat
-    var onSend: () -> Void
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> NSTextView {
-        let textView = NSTextView()
-        textView.isRichText = false
-        textView.drawsBackground = false
-        textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.heightTracksTextView = false
-        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainerInset = NSSize(width: 0, height: 4)
-        textView.font = NSFont.systemFont(ofSize: fontSize)
-        textView.delegate = context.coordinator
-        return textView
-    }
-
-    func updateNSView(_ textView: NSTextView, context: Context) {
-        if textView.string != text {
-            textView.string = text
-        }
-        textView.font = NSFont.systemFont(ofSize: fontSize)
-        // Force the actual frame height to the content height so the box is
-        // one line when empty, regardless of NSTextView's intrinsic size.
-        textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-        let measured = textView.layoutManager?.usedRect(for: textView.textContainer!).height ?? 0
-        let height = min(max(measured + 8, 26), 120)
-        textView.frame.size.height = height
-        contentHeight = height
-        if focused, let window = textView.window, window.firstResponder !== textView {
-            window.makeFirstResponder(textView)
-        }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSTextView, context: Context) -> CGSize? {
-        let width = proposal.width ?? 200
-        nsView.frame.size.width = width
-        nsView.textContainer?.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        nsView.layoutManager?.ensureLayout(for: nsView.textContainer!)
-        let contentHeight = nsView.layoutManager?.usedRect(for: nsView.textContainer!).height ?? 0
-        return CGSize(width: width, height: min(max(contentHeight + 8, 26), 120))
-    }
-
-    final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: GrowingTextEditor
-        init(_ parent: GrowingTextEditor) { self.parent = parent }
-
-        func textDidChange(_ notification: Notification) {
-            guard let textView = notification.object as? NSTextView else { return }
-            parent.text = textView.string
-        }
-
-        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                if !(NSEvent.modifierFlags.contains(.shift)) {
-                    parent.onSend()
-                    return true
-                }
-            }
-            return false
-        }
     }
 }

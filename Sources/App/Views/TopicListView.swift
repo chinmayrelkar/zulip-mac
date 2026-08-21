@@ -6,6 +6,7 @@ public struct TopicSidebar: View {
     @Bindable var store: Store
     @Environment(\.focusedColumn) private var focusedColumn
     @FocusState private var isListFocused: Bool
+    @FocusState private var isFilterFocused: Bool
     @State private var keyboardIndex = 0
 
     public init(store: Store) {
@@ -23,6 +24,25 @@ public struct TopicSidebar: View {
                     TextField(filterPlaceholder, text: $store.topicQuery)
                         .textFieldStyle(.plain)
                         .font(.system(size: 12))
+                        .focused($isFilterFocused)
+                        .onKeyPress(.downArrow) {
+                            isFilterFocused = false
+                            isListFocused = true
+                            keyboardIndex = 0
+                            return .handled
+                        }
+                        .onKeyPress(.return) {
+                            isFilterFocused = false
+                            isListFocused = true
+                            keyboardIndex = 0
+                            return .handled
+                        }
+                        .onKeyPress(.escape) {
+                            store.topicQuery = ""
+                            isFilterFocused = false
+                            isListFocused = true
+                            return .handled
+                        }
                     if !store.topicQuery.isEmpty {
                         Button {
                             store.topicQuery = ""
@@ -39,7 +59,7 @@ public struct TopicSidebar: View {
                 .background(Color(nsColor: .controlBackgroundColor).opacity(0.8), in: RoundedRectangle(cornerRadius: 7))
                 .overlay(
                     RoundedRectangle(cornerRadius: 7)
-                        .stroke(Color.secondary.opacity(0.2), lineWidth: 0.5)
+                        .stroke(isFilterFocused ? Color.accentColor.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: isFilterFocused ? 1.2 : 0.5)
                 )
 
                 if store.selectedSource == .recentTopics {
@@ -197,18 +217,84 @@ public struct TopicSidebar: View {
                 feedInfoView
             }
         }
+        .focusable()
+        .focusEffectDisabled()
         .focused($isListFocused)
         .onKeyPress(.downArrow) {
+            guard isListFocused else { return .ignored }
+            let count = keyboardItemCount
+            if count > 0 { keyboardIndex = min(keyboardIndex + 1, count - 1) }
+            return .handled
+        }
+        .onKeyPress(keys: ["j"]) { press in
+            guard isListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
             let count = keyboardItemCount
             if count > 0 { keyboardIndex = min(keyboardIndex + 1, count - 1) }
             return .handled
         }
         .onKeyPress(.upArrow) {
+            guard isListFocused else { return .ignored }
             keyboardIndex = max(keyboardIndex - 1, 0)
             return .handled
         }
+        .onKeyPress(keys: ["k"]) { press in
+            guard isListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+            keyboardIndex = max(keyboardIndex - 1, 0)
+            return .handled
+        }
+        .onKeyPress(.pageDown) {
+            guard isListFocused else { return .ignored }
+            let count = keyboardItemCount
+            if count > 0 { keyboardIndex = min(keyboardIndex + 5, count - 1) }
+            return .handled
+        }
+        .onKeyPress(.pageUp) {
+            guard isListFocused else { return .ignored }
+            keyboardIndex = max(keyboardIndex - 5, 0)
+            return .handled
+        }
+        .onKeyPress(.home) {
+            guard isListFocused else { return .ignored }
+            keyboardIndex = 0
+            return .handled
+        }
+        .onKeyPress(.end) {
+            guard isListFocused else { return .ignored }
+            keyboardIndex = max(0, keyboardItemCount - 1)
+            return .handled
+        }
         .onKeyPress(.return) {
+            guard isListFocused else { return .ignored }
             keyboardOpenSelection()
+            return .handled
+        }
+        .onKeyPress(.rightArrow) {
+            guard isListFocused else { return .ignored }
+            keyboardOpenSelection()
+            return .handled
+        }
+        .onKeyPress(.leftArrow) {
+            guard isListFocused else { return .ignored }
+            focusedColumn.wrappedValue = .sidebar
+            return .handled
+        }
+        .onKeyPress(.escape) {
+            guard isListFocused else { return .ignored }
+            if !store.topicQuery.isEmpty {
+                store.topicQuery = ""
+                return .handled
+            }
+            focusedColumn.wrappedValue = .sidebar
+            return .handled
+        }
+        .onKeyPress(keys: ["m"]) { press in
+            guard isListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+            toggleMuteSelected()
+            return .handled
+        }
+        .onKeyPress(keys: ["v"]) { press in
+            guard isListFocused, !press.modifiers.contains(.command), !press.modifiers.contains(.control) else { return .ignored }
+            toggleResolveSelected()
             return .handled
         }
         .onChange(of: store.focusTopicListTrigger) { _, _ in
@@ -257,19 +343,73 @@ private extension TopicSidebar {
             if store.recentConversations.indices.contains(idx) {
                 let item = store.recentConversations[idx]
                 store.openTopic(streamID: item.streamID, streamName: item.streamName, topic: item.topic)
+                focusedColumn.wrappedValue = .composer
+                store.focusComposerTrigger += 1
             }
         case .mentions:
             if store.mentionConversations.indices.contains(idx) {
                 let item = store.mentionConversations[idx]
                 store.openTopic(streamID: item.streamID, streamName: item.streamName, topic: item.topic)
+                focusedColumn.wrappedValue = .composer
+                store.focusComposerTrigger += 1
             }
         case .directMessages:
             if store.visibleDMs.indices.contains(idx) {
                 store.openDM(store.visibleDMs[idx])
+                focusedColumn.wrappedValue = .composer
+                store.focusComposerTrigger += 1
             }
         case .channel:
             if store.visibleTopics.indices.contains(idx) {
                 store.openTopic(store.visibleTopics[idx])
+                focusedColumn.wrappedValue = .composer
+                store.focusComposerTrigger += 1
+            }
+        default:
+            break
+        }
+    }
+
+    private func toggleMuteSelected() {
+        let idx = keyboardIndex
+        switch store.selectedSource {
+        case .recentTopics:
+            if store.recentConversations.indices.contains(idx) {
+                let item = store.recentConversations[idx]
+                Task { await store.toggleMuteTopic(streamID: item.streamID, topic: item.topic) }
+            }
+        case .mentions:
+            if store.mentionConversations.indices.contains(idx) {
+                let item = store.mentionConversations[idx]
+                Task { await store.toggleMuteTopic(streamID: item.streamID, topic: item.topic) }
+            }
+        case .channel(let id):
+            if store.visibleTopics.indices.contains(idx) {
+                let topic = store.visibleTopics[idx]
+                Task { await store.toggleMuteTopic(streamID: id, topic: topic.name) }
+            }
+        default:
+            break
+        }
+    }
+
+    private func toggleResolveSelected() {
+        let idx = keyboardIndex
+        switch store.selectedSource {
+        case .recentTopics:
+            if store.recentConversations.indices.contains(idx) {
+                let item = store.recentConversations[idx]
+                Task { await store.toggleResolveTopic(streamID: item.streamID, topic: item.topic) }
+            }
+        case .mentions:
+            if store.mentionConversations.indices.contains(idx) {
+                let item = store.mentionConversations[idx]
+                Task { await store.toggleResolveTopic(streamID: item.streamID, topic: item.topic) }
+            }
+        case .channel(let id):
+            if store.visibleTopics.indices.contains(idx) {
+                let topic = store.visibleTopics[idx]
+                Task { await store.toggleResolveTopic(streamID: id, topic: topic.name) }
             }
         default:
             break
@@ -277,8 +417,8 @@ private extension TopicSidebar {
     }
 
     private func keyboardHighlight(index: Int) -> Color {
-        index == keyboardIndex && isListFocused
-            ? Color.accentColor.opacity(0.15)
+        index == keyboardIndex && isListFocused && focusedColumn.wrappedValue == .topics
+            ? Color.accentColor.opacity(0.12)
             : Color.clear
     }
     private var filterPlaceholder: String {
@@ -304,50 +444,60 @@ private extension TopicSidebar {
     }
 
     private var recentTopicsList: some View {
-        List(Array(store.recentConversations.enumerated()), id: \.element.id) { index, item in
-            RecentTopicRowView(item: item, store: store)
-                .listRowInsets(EdgeInsets(top: 2.5, leading: 8, bottom: 2.5, trailing: 8))
-                .listRowSeparator(.hidden)
-                .listRowBackground(keyboardHighlight(index: index))
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .overlay {
-            if store.recentConversations.isEmpty {
-                ContentUnavailableView("No conversations", systemImage: "clock")
+        let items = store.recentConversations
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        RecentTopicRowView(item: item, store: store)
+                            .id(item.id)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(keyboardHighlight(index: index), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .onChange(of: keyboardIndex) { _, idx in
+                if items.indices.contains(idx) {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        proxy.scrollTo(items[idx].id, anchor: .center)
+                    }
+                }
+            }
+            .overlay {
+                if items.isEmpty {
+                    ContentUnavailableView("No conversations", systemImage: "clock")
+                }
             }
         }
     }
 
     private var mentionsTopicsList: some View {
-        ScrollViewReader { proxy in
-            List(store.mentionConversations, id: \.id) { item in
-                RecentTopicRowView(item: item, store: store)
-                    .id(item.id)
-                    .listRowInsets(EdgeInsets(top: 2.5, leading: 8, bottom: 2.5, trailing: 8))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+        let items = store.mentionConversations
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        RecentTopicRowView(item: item, store: store)
+                            .id(item.id)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(keyboardHighlight(index: index), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+                .padding(.vertical, 4)
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .defaultScrollAnchor(store.mentionsSortOrder == .newestLast ? .bottom : .top)
-            .onAppear {
-                scrollMentionsToEdge(proxy: proxy)
-            }
-            .task {
-                try? await Task.sleep(nanoseconds: 80_000_000)
-                scrollMentionsToEdge(proxy: proxy)
-            }
-            .onChange(of: store.mentionsSortOrder) { _, _ in
-                withAnimation {
-                    scrollMentionsToEdge(proxy: proxy)
+            .onChange(of: keyboardIndex) { _, idx in
+                if items.indices.contains(idx) {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        proxy.scrollTo(items[idx].id, anchor: .center)
+                    }
                 }
             }
-            .onChange(of: store.mentionConversations.count) { _, _ in
-                scrollMentionsToEdge(proxy: proxy)
-            }
             .overlay {
-                if store.mentionConversations.isEmpty {
+                if items.isEmpty {
                     ContentUnavailableView(
                         "No mentions yet",
                         systemImage: "at",
@@ -358,79 +508,93 @@ private extension TopicSidebar {
         }
     }
 
-    private func scrollMentionsToEdge(proxy: ScrollViewProxy) {
-        if store.mentionsSortOrder == .newestLast {
-            if let last = store.mentionConversations.last {
-                proxy.scrollTo(last.id, anchor: .bottom)
-            }
-        } else {
-            if let first = store.mentionConversations.first {
-                proxy.scrollTo(first.id, anchor: .top)
-            }
-        }
-    }
-
     private func channelTopicList(streamID: Int) -> some View {
-        List {
-            ForEach(store.visibleTopics, id: \.name) { topic in
-                TopicRowView(
-                    topic: topic,
-                    unread: store.unread.topicCount(streamID, topic: topic.name),
-                    isMuted: store.mutedTopics.contains("\(streamID):\(topic.name)"),
-                    streamID: streamID,
-                    store: store
-                )
-                .listRowInsets(EdgeInsets(top: 2.5, leading: 8, bottom: 2.5, trailing: 8))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-            }
-
-            if !store.showResolvedInChannel && store.totalResolvedCountInSelectedChannel > 0 {
-                Button {
-                    store.showResolvedInChannel = true
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 11))
-                        Text("Show \(store.totalResolvedCountInSelectedChannel) resolved topics")
-                            .font(.system(size: 11.5, weight: .medium))
+        let topics = store.visibleTopics
+        let resolvedCount = store.totalResolvedCountInSelectedChannel
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(topics.enumerated()), id: \.element.name) { index, topic in
+                        TopicRowView(
+                            topic: topic,
+                            unread: store.unread.topicCount(streamID, topic: topic.name),
+                            isMuted: store.mutedTopics.contains("\(streamID):\(topic.name)"),
+                            streamID: streamID,
+                            store: store
+                        )
+                        .id(topic.name)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(keyboardHighlight(index: index), in: RoundedRectangle(cornerRadius: 5))
                     }
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 8)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.12), lineWidth: 0.8)
-                    )
+
+                    if !store.showResolvedInChannel && resolvedCount > 0 {
+                        Button {
+                            store.showResolvedInChannel = true
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 11))
+                                Text("Show \(resolvedCount) resolved topics")
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 8)
+                            .background(Color(nsColor: .controlBackgroundColor).opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(Color.secondary.opacity(0.12), lineWidth: 0.8)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                    }
                 }
-                .buttonStyle(.plain)
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
+                .padding(.vertical, 4)
             }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .overlay {
-            if store.visibleTopics.isEmpty {
-                ContentUnavailableView("No topics", systemImage: "text.bubble")
+            .onChange(of: keyboardIndex) { _, idx in
+                if topics.indices.contains(idx) {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        proxy.scrollTo(topics[idx].name, anchor: .center)
+                    }
+                }
+            }
+            .overlay {
+                if topics.isEmpty {
+                    ContentUnavailableView("No topics", systemImage: "text.bubble")
+                }
             }
         }
     }
 
     private var dmList: some View {
-        List(store.visibleDMs, id: \.key) { dm in
-            DMRowView(dm: dm, store: store)
-                .listRowInsets(EdgeInsets(top: 2.5, leading: 8, bottom: 2.5, trailing: 8))
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .overlay {
-            if store.visibleDMs.isEmpty {
-                ContentUnavailableView("No direct messages", systemImage: "person.2")
+        let dms = store.visibleDMs
+        return ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(Array(dms.enumerated()), id: \.element.key) { index, dm in
+                        DMRowView(dm: dm, store: store)
+                            .id(dm.key)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(keyboardHighlight(index: index), in: RoundedRectangle(cornerRadius: 5))
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .onChange(of: keyboardIndex) { _, idx in
+                if dms.indices.contains(idx) {
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        proxy.scrollTo(dms[idx].key, anchor: .center)
+                    }
+                }
+            }
+            .overlay {
+                if dms.isEmpty {
+                    ContentUnavailableView("No direct messages", systemImage: "person.2")
+                }
             }
         }
     }

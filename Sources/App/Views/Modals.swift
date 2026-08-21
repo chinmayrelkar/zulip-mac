@@ -499,6 +499,8 @@ public struct NewDMModal: View {
     @Bindable var store: Store
     @State private var query = ""
     @State private var selectedUserIDs: Set<Int> = []
+    @State private var highlightedIndex = 0
+    @FocusState private var isInputFocused: Bool
 
     public init(store: Store) {
         self.store = store
@@ -535,42 +537,94 @@ public struct NewDMModal: View {
                 }
             }
 
-            TextField("Search by name or email…", text: $query)
+            TextField("Search by name or email… (↑↓ navigate, Space select, ↵ start)", text: $query)
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 13))
-
-            List {
-                ForEach(filteredUsers) { user in
-                    HStack(spacing: 10) {
-                        AvatarView(userID: user.userID, avatarURL: user.avatarURL, email: user.email, site: store.site, loader: store.media, size: 28)
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(user.fullName)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(user.email)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        if selectedUserIDs.contains(user.userID) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(Color.accentColor)
+                .focused($isInputFocused)
+                .onChange(of: query) { _, _ in
+                    highlightedIndex = 0
+                }
+                .onKeyPress(.downArrow) {
+                    let total = filteredUsers.count
+                    if total > 0 {
+                        highlightedIndex = min(highlightedIndex + 1, total - 1)
+                    }
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    highlightedIndex = max(highlightedIndex - 1, 0)
+                    return .handled
+                }
+                .onKeyPress(.space) {
+                    if filteredUsers.indices.contains(highlightedIndex) {
+                        let uid = filteredUsers[highlightedIndex].userID
+                        if selectedUserIDs.contains(uid) {
+                            selectedUserIDs.remove(uid)
+                        } else {
+                            selectedUserIDs.insert(uid)
                         }
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        if selectedUserIDs.contains(user.userID) {
-                            selectedUserIDs.remove(user.userID)
-                        } else {
-                            selectedUserIDs.insert(user.userID)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    store.showNewDMModal = false
+                    return .handled
+                }
+                .onSubmit {
+                    if selectedUserIDs.isEmpty && filteredUsers.indices.contains(highlightedIndex) {
+                        selectedUserIDs.insert(filteredUsers[highlightedIndex].userID)
+                    }
+                    if !selectedUserIDs.isEmpty {
+                        store.openDM(with: Array(selectedUserIDs))
+                        store.showNewDMModal = false
+                    }
+                }
+
+            ScrollViewReader { proxy in
+                List {
+                    ForEach(Array(filteredUsers.enumerated()), id: \.element.id) { index, user in
+                        HStack(spacing: 10) {
+                            AvatarView(userID: user.userID, avatarURL: user.avatarURL, email: user.email, site: store.site, loader: store.media, size: 28)
+
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(user.fullName)
+                                    .font(.system(size: 13, weight: .medium))
+                                Text(user.email)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            if selectedUserIDs.contains(user.userID) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                        .id(user.userID)
+                        .padding(.vertical, 2)
+                        .contentShape(Rectangle())
+                        .listRowBackground(index == highlightedIndex ? Color.accentColor.opacity(0.12) : Color.clear)
+                        .onTapGesture {
+                            highlightedIndex = index
+                            if selectedUserIDs.contains(user.userID) {
+                                selectedUserIDs.remove(user.userID)
+                            } else {
+                                selectedUserIDs.insert(user.userID)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 240)
+                .listStyle(.plain)
+                .onChange(of: highlightedIndex) { _, idx in
+                    if filteredUsers.indices.contains(idx) {
+                        withAnimation(.easeInOut(duration: 0.1)) {
+                            proxy.scrollTo(filteredUsers[idx].userID, anchor: .center)
                         }
                     }
                 }
             }
-            .frame(height: 240)
-            .listStyle(.plain)
 
             HStack {
                 Button("Cancel") {
@@ -587,6 +641,8 @@ public struct NewDMModal: View {
         }
         .padding(20)
         .frame(width: 460)
+        .onAppear { isInputFocused = true }
+        .onExitCommand { store.showNewDMModal = false }
     }
 
     private var filteredUsers: [User] {
@@ -858,6 +914,7 @@ public struct MessageEditSheet: View {
 
             HStack {
                 Button("Cancel") { store.editingMessage = nil }
+                    .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Save Changes") {
                     Task {
@@ -870,10 +927,12 @@ public struct MessageEditSheet: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.return, modifiers: [.command])
             }
         }
         .padding(20)
         .frame(width: 480)
+        .onExitCommand { store.editingMessage = nil }
     }
 }
 
@@ -920,9 +979,11 @@ public struct MessageHistorySheet: View {
                 Spacer()
                 Button("Close") { store.viewingHistoryForMessage = nil }
                     .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.cancelAction)
             }
         }
         .padding(20)
         .frame(width: 480)
+        .onExitCommand { store.viewingHistoryForMessage = nil }
     }
 }
