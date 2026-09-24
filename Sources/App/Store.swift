@@ -76,6 +76,7 @@ public final class Store {
     public var presences: [Int: UserPresence] = [:]
     public var userStatuses: [Int: UserStatus] = [:]
     public var typingUsers: [String: Set<Int>] = [:] // key -> Set of userIDs
+    @ObservationIgnored var typingExpiry: [String: Task<Void, Never>] = [:] // "\(typingKey)|\(senderID)" -> removal task
     public var mentionsMessages: [Message] = []
     public var readReceipts: [Int: [Int]] = [:] // messageID -> userIDs who read it
 

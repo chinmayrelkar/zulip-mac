@@ -106,7 +106,7 @@ public struct ChannelSidebar: View {
                         icon: "clock.fill",
                         iconColor: .blue,
                         tag: .recentTopics,
-                        unread: store.unread.totalUnread
+                        unread: store.totalUnmutedUnreadCount
                     )
 
                     navigationRow(
@@ -173,7 +173,7 @@ public struct ChannelSidebar: View {
                 if !store.pinnedChannels.isEmpty {
                     Section {
                         ForEach(store.pinnedChannels) { channel in
-                            let unread = store.unread.channelCount(channel.streamID)
+                            let unread = store.unreadCount(forChannel: channel.streamID)
                             channelRow(channel: channel, unread: unread)
                                 .tag(SidebarSource.channel(channel.streamID))
                         }
@@ -199,7 +199,7 @@ public struct ChannelSidebar: View {
                             Section {
                                 if !isCollapsed {
                                     ForEach(group.channels) { channel in
-                                        let unread = store.unread.channelCount(channel.streamID)
+                                        let unread = store.unreadCount(forChannel: channel.streamID)
                                         let subName = channel.name.components(separatedBy: "/").dropFirst().joined(separator: "/")
                                         channelRow(channel: channel, unread: unread, displayName: subName.isEmpty ? channel.name : subName, isNested: true)
                                             .tag(SidebarSource.channel(channel.streamID))
@@ -247,7 +247,7 @@ public struct ChannelSidebar: View {
                         } else {
                             Section {
                                 ForEach(group.channels) { channel in
-                                    let unread = store.unread.channelCount(channel.streamID)
+                                    let unread = store.unreadCount(forChannel: channel.streamID)
                                     channelRow(channel: channel, unread: unread)
                                         .tag(SidebarSource.channel(channel.streamID))
                                 }
@@ -260,7 +260,7 @@ public struct ChannelSidebar: View {
                     // Flat Channels List
                     Section {
                         ForEach(store.unmutedChannels) { channel in
-                            let unread = store.unread.channelCount(channel.streamID)
+                            let unread = store.unreadCount(forChannel: channel.streamID)
                             channelRow(channel: channel, unread: unread)
                                 .tag(SidebarSource.channel(channel.streamID))
                         }
@@ -273,7 +273,7 @@ public struct ChannelSidebar: View {
                 if !store.mutedChannels.isEmpty {
                     Section(isExpanded: $isMutedChannelsExpanded) {
                         ForEach(store.mutedChannels) { channel in
-                            let unread = store.unread.channelCount(channel.streamID)
+                            let unread = store.unreadCount(forChannel: channel.streamID)
                             channelRow(channel: channel, unread: unread)
                                 .tag(SidebarSource.channel(channel.streamID))
                         }

@@ -313,6 +313,7 @@ public struct TopicSidebar: View {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         store.openTopic(streamID: channel.streamID, streamName: channel.name, topic: "new topic")
+                        store.focusComposerTrigger += 1
                     } label: {
                         Label("New Topic", systemImage: "plus")
                     }
@@ -343,27 +344,27 @@ private extension TopicSidebar {
             if store.recentConversations.indices.contains(idx) {
                 let item = store.recentConversations[idx]
                 store.openTopic(streamID: item.streamID, streamName: item.streamName, topic: item.topic)
-                focusedColumn.wrappedValue = .composer
-                store.focusComposerTrigger += 1
+                focusedColumn.wrappedValue = .messages
+                store.focusMessagesTrigger += 1
             }
         case .mentions:
             if store.mentionConversations.indices.contains(idx) {
                 let item = store.mentionConversations[idx]
                 store.openTopic(streamID: item.streamID, streamName: item.streamName, topic: item.topic)
-                focusedColumn.wrappedValue = .composer
-                store.focusComposerTrigger += 1
+                focusedColumn.wrappedValue = .messages
+                store.focusMessagesTrigger += 1
             }
         case .directMessages:
             if store.visibleDMs.indices.contains(idx) {
                 store.openDM(store.visibleDMs[idx])
-                focusedColumn.wrappedValue = .composer
-                store.focusComposerTrigger += 1
+                focusedColumn.wrappedValue = .messages
+                store.focusMessagesTrigger += 1
             }
         case .channel:
             if store.visibleTopics.indices.contains(idx) {
                 store.openTopic(store.visibleTopics[idx])
-                focusedColumn.wrappedValue = .composer
-                store.focusComposerTrigger += 1
+                focusedColumn.wrappedValue = .messages
+                store.focusMessagesTrigger += 1
             }
         default:
             break
@@ -515,10 +516,12 @@ private extension TopicSidebar {
             ScrollView {
                 LazyVStack(spacing: 2) {
                     ForEach(Array(topics.enumerated()), id: \.element.name) { index, topic in
+                        let isChannelMuted = store.channel(id: streamID)?.isMuted ?? false
+                        let isTopicMuted = isChannelMuted || store.mutedTopics.contains("\(streamID):\(topic.name)")
                         TopicRowView(
                             topic: topic,
-                            unread: store.unread.topicCount(streamID, topic: topic.name),
-                            isMuted: store.mutedTopics.contains("\(streamID):\(topic.name)"),
+                            unread: isTopicMuted ? 0 : store.unread.topicCount(streamID, topic: topic.name),
+                            isMuted: isTopicMuted,
                             streamID: streamID,
                             store: store
                         )
@@ -642,6 +645,15 @@ private struct RecentTopicRowView: View {
     @Bindable var store: Store
     @State private var isHovered = false
 
+    private var isSelected: Bool {
+        if let tab = store.activeTab {
+            if case .topic(let sID, _, let topic) = tab.narrow {
+                return sID == item.streamID && topic == item.topic
+            }
+        }
+        return false
+    }
+
     var body: some View {
         Button {
             store.openTopic(streamID: item.streamID, streamName: item.streamName, topic: item.topic)
@@ -656,7 +668,7 @@ private struct RecentTopicRowView: View {
                     HStack(spacing: 5) {
                         Text(item.streamName)
                             .font(.system(size: settings.uiSecondarySize, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
                         if item.isResolved {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 9))
@@ -664,14 +676,14 @@ private struct RecentTopicRowView: View {
                         }
                     }
                     Text(item.topic.isEmpty ? "(no topic)" : item.topic)
-                        .font(.system(size: settings.uiFontSize, weight: item.unreadCount > 0 ? .semibold : .regular))
+                        .font(.system(size: settings.uiFontSize, weight: (isSelected || item.unreadCount > 0) ? .semibold : .regular))
                         .lineLimit(1)
                         .foregroundStyle(item.isMuted ? Color.secondary.opacity(0.65) : Color.primary)
                 }
 
                 Spacer()
 
-                if item.unreadCount > 0 {
+                if !item.isMuted && item.unreadCount > 0 {
                     Text("\(item.unreadCount)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
@@ -681,12 +693,22 @@ private struct RecentTopicRowView: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .background(isHovered ? Color.secondary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.18)
+                : (isHovered ? Color.secondary.opacity(0.08) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
         .contextMenu {
             Button(item.isResolved ? "Unmark as resolved" : "Mark as resolved") {
                 Task { await store.toggleResolveTopic(streamID: item.streamID, topic: item.topic) }
@@ -707,6 +729,15 @@ private struct TopicRowView: View {
     @Bindable var store: Store
     @State private var isHovered = false
 
+    private var isSelected: Bool {
+        if let tab = store.activeTab {
+            if case .topic(let sID, _, let tName) = tab.narrow {
+                return sID == streamID && tName == topic.name
+            }
+        }
+        return false
+    }
+
     var body: some View {
         Button {
             store.openTopic(topic)
@@ -718,7 +749,7 @@ private struct TopicRowView: View {
                         .foregroundStyle(.green)
                 }
                 Text(topic.displayName.isEmpty ? "(no topic)" : topic.displayName)
-                    .font(.system(size: settings.uiFontSize, weight: unread > 0 ? .semibold : .regular))
+                    .font(.system(size: settings.uiFontSize, weight: (isSelected || unread > 0) ? .semibold : .regular))
                     .lineLimit(1)
                     .strikethrough(topic.isResolved)
                     .foregroundStyle(isMuted ? Color.secondary.opacity(0.65) : Color.primary)
@@ -730,7 +761,7 @@ private struct TopicRowView: View {
                         .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
-                if unread > 0 {
+                if !isMuted && unread > 0 {
                     Text("\(unread)")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.white)
@@ -740,12 +771,22 @@ private struct TopicRowView: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .background(isHovered ? Color.secondary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.18)
+                : (isHovered ? Color.secondary.opacity(0.08) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
         .contextMenu {
             Button(topic.isResolved ? "Unmark as resolved" : "Mark as resolved") {
                 Task { await store.toggleResolveTopic(streamID: streamID, topic: topic.name) }
@@ -762,6 +803,15 @@ private struct DMRowView: View {
     let dm: RecentDM
     @Bindable var store: Store
     @State private var isHovered = false
+
+    private var isSelected: Bool {
+        if let tab = store.activeTab {
+            if case .dm(let userIDs) = tab.narrow {
+                return store.dmKey(RecentDM(userIDs: userIDs, maxMessageID: 0)) == store.dmKey(dm)
+            }
+        }
+        return false
+    }
 
     var body: some View {
         Button {
@@ -783,7 +833,7 @@ private struct DMRowView: View {
                 }
 
                 Text(store.dmTitle(dm))
-                    .font(.system(size: settings.uiFontSize, weight: unreadCount > 0 ? .semibold : .regular))
+                    .font(.system(size: settings.uiFontSize, weight: (isSelected || unreadCount > 0) ? .semibold : .regular))
                     .lineLimit(1)
 
                 Spacer()
@@ -798,12 +848,22 @@ private struct DMRowView: View {
                         .monospacedDigit()
                 }
             }
-            .padding(.vertical, 3)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .background(isHovered ? Color.secondary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 5))
+        .background(
+            isSelected
+                ? Color.accentColor.opacity(0.18)
+                : (isHovered ? Color.secondary.opacity(0.08) : Color.clear),
+            in: RoundedRectangle(cornerRadius: 6)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? Color.accentColor.opacity(0.45) : Color.clear, lineWidth: 1)
+        )
     }
 
     private func presenceColor(_ status: PresenceStatus) -> Color {

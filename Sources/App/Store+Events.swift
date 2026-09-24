@@ -74,8 +74,8 @@ extension Store {
             }
         case .realmEmoji(let emojis):
             realmEmojis = emojis
-        case .mutedTopics(let topics):
-            mutedTopics = Set(topics.map { "\($0.streamID):\($0.topic)" })
+        case .userTopic(let streamID, let topic, let visibilityPolicy):
+            applyUserTopicEvent(streamID: streamID, topic: topic, visibilityPolicy: visibilityPolicy)
         case .heartbeat, .other, .restart:
             break
         }
@@ -92,7 +92,7 @@ extension Store {
                 }
                 if tab.id == activeTabID {
                     markRead(tab)
-                } else {
+                } else if !isNarrowMuted(tab.narrow) {
                     tabs[index].unreadSinceOpen += 1
                 }
             }
@@ -166,11 +166,37 @@ extension Store {
         }
     }
 
+    private func applyUserTopicEvent(streamID: Int, topic: String, visibilityPolicy: Int) {
+        // Zulip visibility_policy: 0 none, 1 muted, 2 unmuted, 3 followed.
+        let isMuted = visibilityPolicy == 1
+        let key = "\(streamID):\(topic)"
+        if isMuted {
+            mutedTopics.insert(key)
+        } else {
+            mutedTopics.remove(key)
+        }
+        if var topics = topicsByStream[streamID], let idx = topics.firstIndex(where: { $0.name == topic }) {
+            topics[idx].isMuted = isMuted
+            topicsByStream[streamID] = topics
+        }
+        refreshBadge()
+        persistState()
+    }
+
     private func applyTypingEvent(senderID: Int, op: String, streamID: Int?, topic: String?, userIDs: [Int]?) {
         let key = typingKey(streamID: streamID, topic: topic, userIDs: userIDs)
         if op == "start" {
             typingUsers[key, default: []].insert(senderID)
+            let expiryKey = "\(key)|\(senderID)"
+            typingExpiry[expiryKey]?.cancel()
+            typingExpiry[expiryKey] = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled else { return }
+                self?.typingUsers[key]?.remove(senderID)
+                self?.typingExpiry[expiryKey] = nil
+            }
         } else {
+            typingExpiry.removeValue(forKey: "\(key)|\(senderID)")?.cancel()
             typingUsers[key, default: []].remove(senderID)
         }
     }

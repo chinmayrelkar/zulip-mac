@@ -23,7 +23,7 @@ public actor ZulipClient {
                 "message", "update_message", "delete_message", "reaction",
                 "update_message_flags", "subscription", "realm_user",
                 "realm_emoji", "typing", "presence", "user_status",
-                "muted_topics", "user_topic"
+                "user_topic"
             ]),
             "fetch_event_types": Self.json([
                 "message", "subscription", "realm_user", "update_message_flags",
@@ -46,14 +46,14 @@ public actor ZulipClient {
         }
         var mutedList: [(streamID: Int, topic: String)] = []
         if let ut = raw.userTopics {
-            for item in ut where item.visibilityPolicy == 2 {
+            for item in ut where item.visibilityPolicy == 1 {
                 mutedList.append((streamID: item.streamID, topic: item.topicName))
             }
         }
         if let mt = raw.mutedTopics, let subs = raw.subscriptions {
             let channelMap = Dictionary(subs.map { ($0.name.lowercased(), $0.streamID) }, uniquingKeysWith: { lhs, _ in lhs })
             for item in mt {
-                if let sid = channelMap[item.streamName.lowercased()] {
+                if let sid = item.streamID ?? channelMap[item.streamName.lowercased()] {
                     mutedList.append((streamID: sid, topic: item.topic))
                 }
             }
@@ -440,13 +440,23 @@ public actor ZulipClient {
 }
 
 private struct LegacyMutedTopicDTO: Decodable, Sendable {
+    var streamID: Int?
     var streamName: String
     var topic: String
     var dateMuted: Double?
 
     init(from decoder: Decoder) throws {
         var container = try decoder.unkeyedContainer()
-        streamName = (try? container.decode(String.self)) ?? ""
+        if let id = try? container.decode(Int.self) {
+            streamID = id
+            streamName = ""
+        } else if let s = try? container.decode(String.self) {
+            streamID = nil
+            streamName = s
+        } else {
+            streamID = nil
+            streamName = ""
+        }
         topic = (try? container.decode(String.self)) ?? ""
         dateMuted = try? container.decode(Double.self)
     }
@@ -461,6 +471,13 @@ private struct UserTopicDTO: Decodable, Sendable {
         case streamID = "stream_id"
         case topicName = "topic_name"
         case visibilityPolicy = "visibility_policy"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        streamID = try c.decode(Int.self, forKey: .streamID)
+        topicName = (try? c.decode(String.self, forKey: .topicName)) ?? ""
+        visibilityPolicy = (try? c.decode(Int.self, forKey: .visibilityPolicy)) ?? 0
     }
 }
 
@@ -590,6 +607,8 @@ private struct EventDTO: Decodable, Sendable {
     var subscriptions: [Channel]?
     var person: User?
     var realmEmoji: [String: RealmEmoji]?
+    var topicName: String?
+    var visibilityPolicy: Int?
 
     struct TypingPerson: Decodable, Sendable {
         var userID: Int?
@@ -615,6 +634,8 @@ private struct EventDTO: Decodable, Sendable {
         case subscriptions
         case person
         case realmEmoji = "realm_emoji"
+        case topicName = "topic_name"
+        case visibilityPolicy = "visibility_policy"
     }
 
     func asEvent() -> ZulipEvent {
@@ -670,8 +691,9 @@ private struct EventDTO: Decodable, Sendable {
             return .other(type)
         case "realm_emoji":
             return .realmEmoji(emojis: realmEmoji ?? [:])
-        case "muted_topics":
-            return .mutedTopics(topics: [])
+        case "user_topic":
+            guard let streamID, let topicName, let visibilityPolicy else { return .other(type) }
+            return .userTopic(streamID: streamID, topic: topicName, visibilityPolicy: visibilityPolicy)
         case "heartbeat":
             return .heartbeat
         case "restart":

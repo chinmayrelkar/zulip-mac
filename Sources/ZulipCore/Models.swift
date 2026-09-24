@@ -47,6 +47,10 @@ public struct Channel: Identifiable, Hashable, Sendable, Codable {
         case dateCreated = "date_created"
     }
 
+    private enum LegacyKeys: String, CodingKey {
+        case inHomeView = "in_home_view"
+    }
+
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         streamID = try c.decode(Int.self, forKey: .streamID)
@@ -54,7 +58,14 @@ public struct Channel: Identifiable, Hashable, Sendable, Codable {
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         color = try c.decodeIfPresent(String.self, forKey: .color) ?? "888888"
         pinToTop = try c.decodeIfPresent(Bool.self, forKey: .pinToTop) ?? false
-        isMuted = try c.decodeIfPresent(Bool.self, forKey: .isMuted) ?? false
+        if let m = try c.decodeIfPresent(Bool.self, forKey: .isMuted) {
+            isMuted = m
+        } else if let inHome = try decoder.container(keyedBy: LegacyKeys.self)
+            .decodeIfPresent(Bool.self, forKey: .inHomeView) {
+            isMuted = !inHome
+        } else {
+            isMuted = false
+        }
         inviteOnly = try c.decodeIfPresent(Bool.self, forKey: .inviteOnly) ?? false
         isWebPublic = try c.decodeIfPresent(Bool.self, forKey: .isWebPublic) ?? false
         if let created = try c.decodeIfPresent(Double.self, forKey: .dateCreated) {
@@ -609,7 +620,7 @@ public enum ZulipEvent: Sendable {
     case subscription(op: String, streams: [Channel])
     case realmUser(op: String, person: User)
     case realmEmoji(emojis: [String: RealmEmoji])
-    case mutedTopics(topics: [(streamID: Int, topic: String)])
+    case userTopic(streamID: Int, topic: String, visibilityPolicy: Int)
     case heartbeat
     case restart
     case other(String)

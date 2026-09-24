@@ -92,7 +92,7 @@ private struct TabItemView: View {
                     .foregroundStyle(isActive ? Color.primary : Color.secondary)
                     .lineLimit(1)
 
-                if tab.unreadSinceOpen > 0 && !isActive {
+                if tab.unreadSinceOpen > 0 && !isActive && !store.isNarrowMuted(tab.narrow) {
                     Text("\(tab.unreadSinceOpen)")
                         .font(.system(size: 10, weight: .bold))
                         .padding(.horizontal, 5)
@@ -278,26 +278,6 @@ public struct ConversationHeader: View {
                     .font(.system(size: settings.uiFontSize, weight: .bold))
                 Spacer()
 
-                Toggle(isOn: $store.showMutedInRecent) {
-                    HStack(spacing: 4) {
-                        Image(systemName: store.showMutedInRecent ? "bell.slash.fill" : "bell.slash")
-                        Text("Include Muted")
-                    }
-                    .font(.system(size: 11.5))
-                }
-                .toggleStyle(.button)
-                .controlSize(.small)
-
-                Toggle(isOn: $store.showUnreadOnlyInRecent) {
-                    HStack(spacing: 4) {
-                        Image(systemName: store.showUnreadOnlyInRecent ? "envelope.badge.fill" : "envelope")
-                        Text("Unread Only")
-                    }
-                    .font(.system(size: 11.5))
-                }
-                .toggleStyle(.button)
-                .controlSize(.small)
-
             case .mentions:
                 Image(systemName: "at")
                     .foregroundStyle(.orange)
@@ -396,14 +376,10 @@ public struct MessageList: View {
                             MessageBlockView(store: store, block: block)
                         }
                     }
-
-                    // Direct child sentinel and AppKit scroll engine
-                    ScrollToBottomHelper(trigger: "\(tab.id):\(visibleMessages.count):\(visibleMessages.last?.id ?? 0):\(thread.isLoading)")
-                        .frame(height: 1)
-                        .id("BOTTOM_SENTINEL")
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
+                .background(BottomPin(lastMessageID: visibleMessages.last?.id ?? 0))
             }
             .defaultScrollAnchor(.bottom)
             .focusable()
@@ -651,17 +627,6 @@ public struct MessageList: View {
                     }
                 }
             }
-            .onChange(of: thread.messages.count) { _, _ in
-                scrollToBottom(proxy: proxy, animated: true)
-            }
-            .onChange(of: thread.isLoading) { _, loading in
-                if !loading {
-                    scrollToBottom(proxy: proxy)
-                }
-            }
-            .onChange(of: visibleMessages.last?.id) { _, _ in
-                scrollToBottom(proxy: proxy)
-            }
         }
     }
 
@@ -686,15 +651,6 @@ public struct MessageList: View {
         return false
     }
 
-    private func scrollToBottom(proxy: ScrollViewProxy, animated: Bool = false) {
-        if animated {
-            withAnimation(.easeOut(duration: 0.12)) {
-                proxy.scrollTo("BOTTOM_SENTINEL", anchor: .bottom)
-            }
-        } else {
-            proxy.scrollTo("BOTTOM_SENTINEL", anchor: .bottom)
-        }
-    }
 
 
     private struct DaySection {
@@ -778,15 +734,15 @@ public struct MessageBlockView: View {
                         .frame(width: 7, height: 7)
 
                     Text(streamName)
-                        .font(.system(size: 11, weight: .bold))
+                        .font(.system(size: 11.5, weight: .bold))
                         .foregroundStyle(.secondary)
 
                     Text("›")
-                        .font(.system(size: 10.5))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary.opacity(0.7))
 
                     Text(block.topic.isEmpty ? "(no topic)" : block.topic)
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.primary)
 
                     Spacer()
@@ -800,50 +756,53 @@ public struct MessageBlockView: View {
                             Image(systemName: "arrow.up.right")
                                 .font(.system(size: 9, weight: .bold))
                         }
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2.5)
-                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.accentColor.opacity(0.14), in: Capsule())
                         .foregroundStyle(Color.accentColor)
                     }
                     .buttonStyle(.plain)
                     .help("Go to topic in \(streamName)")
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.secondary.opacity(0.04))
-
-                Rectangle().fill(Color.secondary.opacity(0.10)).frame(height: 0.5)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                .padding(.bottom, 2)
             }
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(block.messages.enumerated()), id: \.element.id) { index, message in
-                    if index > 0 {
-                        Rectangle().fill(Color.secondary.opacity(0.08)).frame(height: 0.5)
-                            .padding(.leading, 44)
-                    }
                     SingleMessageRow(
                         store: store,
                         message: message,
-                        isFirstInBlock: index == 0
+                        isFirstInBlock: index == 0,
+                        isOnlyInBlock: block.messages.count == 1
                     )
                     .id(message.id)
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isBlockHovered ? blockHoverBackground : Color.clear,
+                in: RoundedRectangle(cornerRadius: 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isBlockHovered ? blockHoverStroke : Color.clear, lineWidth: 0.8)
+            )
+            .contentShape(Rectangle())
+            .onHover { isBlockHovered = $0 }
+            .animation(.easeInOut(duration: 0.12), value: isBlockHovered)
         }
-        .background(
-            Color(nsColor: .controlBackgroundColor).opacity(0.40),
-            in: RoundedRectangle(cornerRadius: 9)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 9)
-                .stroke(
-                    isBlockHovered ? blockHoverStroke : Color.secondary.opacity(0.10),
-                    lineWidth: 0.8
-                )
-        )
-        .onHover { isBlockHovered = $0 }
-        .padding(.vertical, 3)
+        .padding(.vertical, 1.5)
+    }
+
+    private var blockHoverBackground: Color {
+        guard let streamID = block.streamID, let channel = store.channel(id: streamID) else {
+            return Color.secondary.opacity(0.05)
+        }
+        return Color(hex: channel.color).opacity(0.08)
     }
 }
 
@@ -851,14 +810,16 @@ public struct SingleMessageRow: View {
     @Bindable var store: Store
     public let message: Message
     public let isFirstInBlock: Bool
+    public var isOnlyInBlock: Bool = false
     @State private var isHovering = false
     @Environment(AppSettings.self) private var settings
     @Environment(\.focusedColumn) private var focusedColumn
 
-    public init(store: Store, message: Message, isFirstInBlock: Bool) {
+    public init(store: Store, message: Message, isFirstInBlock: Bool, isOnlyInBlock: Bool = false) {
         self.store = store
         self.message = message
         self.isFirstInBlock = isFirstInBlock
+        self.isOnlyInBlock = isOnlyInBlock
     }
 
     public var body: some View {
@@ -970,7 +931,7 @@ public struct SingleMessageRow: View {
         .padding(.vertical, settings.density.rowSpacing(isFirst: isFirstInBlock))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            isHovering ? hoverRowColor : Color.clear,
+            (!isOnlyInBlock && isHovering) ? hoverRowColor : Color.clear,
             in: RoundedRectangle(cornerRadius: 6)
         )
         .overlay(
@@ -984,7 +945,9 @@ public struct SingleMessageRow: View {
                     .padding(.trailing, 8)
             }
         }
+        .contentShape(Rectangle())
         .onHover { isHovering = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovering)
         .task(id: message.id) {
             store.loadReadReceipts(for: message.id)
         }
@@ -1027,9 +990,9 @@ public struct SingleMessageRow: View {
 
     private var hoverRowColor: Color {
         guard let streamID = message.streamID, let channel = store.channel(id: streamID) else {
-            return Color.secondary.opacity(0.06)
+            return Color.primary.opacity(0.04)
         }
-        return Color(hex: channel.color).opacity(0.12)
+        return Color(hex: channel.color).opacity(0.08)
     }
 }
 

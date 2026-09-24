@@ -113,63 +113,78 @@ struct CodeBlockCard: View {
     }
 }
 
-// MARK: - AppKit Direct Scroll-to-Bottom Helper
 
-public struct ScrollToBottomHelper: NSViewRepresentable {
-    public var trigger: String
+/// Keeps the enclosing NSScrollView inside its content and follows new messages.
+/// LazyVStack height estimates can leave `defaultScrollAnchor` scrolled past the real content
+/// (a blank pane) until rows are measured, so this clamps the offset whenever the document resizes.
+/// It never forces a scroll on first render, which would make rows jump as they settle.
+public struct BottomPin: NSViewRepresentable {
+    public var lastMessageID: Int
 
-    public init(trigger: String) {
-        self.trigger = trigger
+    public init(lastMessageID: Int) {
+        self.lastMessageID = lastMessageID
     }
 
-    public func makeNSView(context: Context) -> AutoScrollObserverView {
-        AutoScrollObserverView()
+    public func makeNSView(context: Context) -> BottomPinView {
+        BottomPinView()
     }
 
-    public func updateNSView(_ nsView: AutoScrollObserverView, context: Context) {
-        nsView.triggerScroll()
+    public func updateNSView(_ nsView: BottomPinView, context: Context) {
+        nsView.update(lastMessageID: lastMessageID)
     }
 }
 
-public class AutoScrollObserverView: NSView {
-    public override init(frame frameRect: NSRect) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 1, height: 1))
-        translatesAutoresizingMaskIntoConstraints = false
-    }
+public final class BottomPinView: NSView {
+    private var seenID = 0
+    private var followUntil: Date = .distantPast
+    private weak var observedDoc: NSView?
 
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    public override func viewDidMoveToSuperview() {
-        super.viewDidMoveToSuperview()
-        triggerScroll()
+    func update(lastMessageID: Int) {
+        guard lastMessageID > seenID else { return }
+        let isFirst = seenID == 0
+        seenID = lastMessageID
+        guard !isFirst else { return }
+        // A newer message arrived: follow the bottom while its row lays out.
+        followUntil = Date().addingTimeInterval(0.5)
+        DispatchQueue.main.async { [weak self] in self?.adjust() }
     }
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        triggerScroll()
+        NotificationCenter.default.removeObserver(self)
+        observedDoc = nil
+        guard window != nil, let scrollView = enclosingScrollView, let doc = scrollView.documentView else { return }
+        observedDoc = doc
+        doc.postsFrameChangedNotifications = true
+        scrollView.contentView.postsFrameChangedNotifications = true
+        for view in [doc, scrollView.contentView] as [NSView] {
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(frameChanged), name: NSView.frameDidChangeNotification, object: view
+            )
+        }
+        DispatchQueue.main.async { [weak self] in self?.adjust() }
     }
 
-    public func triggerScroll() {
-        scroll()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.scroll()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.scroll()
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            self?.scroll()
-        }
+    @objc private func frameChanged(_ note: Notification) {
+        adjust()
     }
 
-    private func scroll() {
-        guard let scrollView = enclosingScrollView,
-              let docView = scrollView.documentView else { return }
-        let maxY = max(0, docView.frame.height - scrollView.contentView.bounds.height)
-        scrollView.contentView.scroll(to: NSPoint(x: 0, y: maxY))
-        scrollView.reflectScrolledClipView(scrollView.contentView)
+    private func adjust() {
+        guard let scrollView = enclosingScrollView, let doc = observedDoc ?? scrollView.documentView else { return }
+        let clip = scrollView.contentView
+        let maxY = max(0, doc.frame.height - clip.bounds.height)
+        let bottomY = doc.isFlipped ? maxY : 0
+        let y = clip.bounds.origin.y
+        let target: CGFloat
+        if Date() < followUntil {
+            target = bottomY
+        } else {
+            // Only correct an offset outside the content; leave normal scroll positions alone.
+            target = min(max(y, 0), maxY)
+        }
+        guard abs(y - target) > 0.5 else { return }
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: target))
+        scrollView.reflectScrolledClipView(clip)
     }
 }
 

@@ -20,6 +20,8 @@ extension EnvironmentValues {
 struct ContentView: View {
     @Bindable var store: Store
     @Environment(AppSettings.self) private var settings
+    @AppStorage("sidebar_channel_width") private var channelWidth: Double = 250
+    @AppStorage("sidebar_topic_width") private var topicWidth: Double = 280
     @State private var searchDraft = ""
     @State private var focusedColumn: FocusedColumn = .sidebar
     @FocusState private var searchFocused: Bool
@@ -94,6 +96,7 @@ struct ContentView: View {
                         ) {
                             store.selectedUserForProfile = nil
                             store.openDM(with: [user.userID])
+                            store.focusComposerTrigger += 1
                         }
                     }
             }
@@ -142,18 +145,26 @@ struct ContentView: View {
         HStack(spacing: 0) {
             if store.showLeftPane {
                 ChannelSidebar(store: store)
-                    .frame(width: 255)
-                Divider()
+                    .frame(width: CGFloat(channelWidth))
+                ResizeHandle(width: $channelWidth, minWidth: 190, maxWidth: 380)
             }
             if store.showCenterPane {
                 TopicSidebar(store: store)
-                    .frame(width: 280)
-                Divider()
+                    .frame(width: CGFloat(topicWidth))
+                ResizeHandle(width: $topicWidth, minWidth: 220, maxWidth: 460)
             }
             MessageColumn(store: store)
                 .frame(maxWidth: .infinity)
         }
         .environment(\.focusedColumn, $focusedColumn)
+        .background {
+            // ⌘K is an alias for Quick Open (⌘P); kept out of the File menu so it isn't listed twice.
+            Button("") { store.showQuickSwitcher.toggle() }
+                .keyboardShortcut("k", modifiers: [.command])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
+        }
         .toolbar { toolbar }
         .onKeyPress(.escape) {
             if searchFocused {
@@ -205,12 +216,36 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .navigation) {
+            HStack(spacing: 3) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        store.toggleLeftPane()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                        .foregroundStyle(store.showLeftPane ? Color.accentColor : Color.secondary)
+                }
+                .help(store.showLeftPane ? "Hide channels (⌘B)" : "Show channels (⌘B)")
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        store.toggleCenterPane()
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                        .foregroundStyle(store.showCenterPane ? Color.accentColor : Color.secondary)
+                }
+                .help(store.showCenterPane ? "Hide topics (⇧⌘B)" : "Show topics (⇧⌘B)")
+            }
+        }
+
+        ToolbarItem(placement: .navigation) {
             Button {
                 store.showQuickSwitcher = true
             } label: {
                 Label("Quick Switcher", systemImage: "command")
             }
-            .help("Jump to conversation (⌘K)")
+            .help("Jump to conversation (⌘K or ⌘P)")
         }
 
         ToolbarItem(placement: .principal) {
@@ -224,13 +259,27 @@ struct ContentView: View {
                 Label("Reload", systemImage: "arrow.clockwise")
             }
             .disabled(store.isBusy)
-            .help(store.status ?? "Reconnect")
+            .help(store.status ?? "Reload & sync (⌘R)")
         }
 
         ToolbarItem(placement: .primaryAction) {
-            Button {
+            Menu {
                 if let me = store.user(store.selfUserID) {
-                    store.selectedUserForProfile = me
+                    Text(me.fullName)
+                        .font(.headline)
+                    Text(store.selfEmail)
+                        .font(.caption)
+                    Divider()
+                    Button("View Profile") {
+                        store.selectedUserForProfile = me
+                    }
+                }
+                SettingsLink {
+                    Text("Preferences…")
+                }
+                Divider()
+                Button("Log Out", role: .destructive) {
+                    store.logout()
                 }
             } label: {
                 HStack(spacing: 6) {
@@ -238,20 +287,62 @@ struct ContentView: View {
                         .fill(Color.green)
                         .frame(width: 7, height: 7)
                     Text(store.selfEmail)
+                        .font(.system(size: settings.uiSecondarySize))
                         .foregroundStyle(.secondary)
                 }
             }
-            .buttonStyle(.plain)
-            .help("Signed in as \(store.selfEmail)")
-        }
-
-        ToolbarItem(placement: .primaryAction) {
-            Button("Log out", action: store.logout)
+            .help("Account: \(store.selfEmail)")
         }
     }
 
     private var errorPresented: Binding<Bool> {
         Binding(get: { store.errorMessage != nil }, set: { if !$0 { store.errorMessage = nil } })
+    }
+}
+
+struct ResizeHandle: View {
+    @Binding var width: Double
+    var minWidth: Double
+    var maxWidth: Double
+    @State private var initialWidth: Double?
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(Color.secondary.opacity(0.18))
+                .frame(width: 1)
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: 8)
+                .contentShape(Rectangle())
+        }
+        .frame(width: 8)
+        .onContinuousHover { phase in
+            if case .active = phase {
+                NSCursor.resizeLeftRight.set()
+            } else {
+                NSCursor.arrow.set()
+            }
+        }
+        .onDisappear {
+            NSCursor.arrow.set()
+        }
+        .gesture(
+            // Global space: the handle moves with the width, so local translation would feed back on itself.
+            DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                .onChanged { value in
+                    if initialWidth == nil {
+                        initialWidth = width
+                    }
+                    if let start = initialWidth {
+                        let target = start + Double(value.translation.width)
+                        width = min(max(target, minWidth), maxWidth)
+                    }
+                }
+                .onEnded { _ in
+                    initialWidth = nil
+                }
+        )
     }
 }
 

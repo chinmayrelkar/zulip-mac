@@ -291,11 +291,22 @@ extension Store {
             syncSelection(to: narrow)
             return
         }
+
         let tab = ConversationTab(narrow: narrow)
-        tabs.append(tab)
+        if !preferNew, let activeID = activeTabID,
+           let currentIndex = tabs.firstIndex(where: { $0.id == activeID }),
+           !tabs[currentIndex].pinned,
+           tabs[currentIndex].draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Replace the current unpinned tab, unless it holds an unsent draft
+            loadTasks[activeID]?.cancel()
+            loadTasks[activeID] = nil
+            threads.removeValue(forKey: activeID)
+            tabs[currentIndex] = tab
+        } else {
+            tabs.append(tab)
+        }
         activeTabID = tab.id
         syncSelection(to: narrow)
-        focusComposerTrigger += 1
         if let cached = LocalCache.loadThreadMessages(key: cacheKey(for: narrow)) {
             threads[tab.id] = MessageThread(messages: cached, foundOldest: false, foundNewest: true, isLoading: false)
         }
@@ -511,7 +522,7 @@ extension Store {
         guard let client else { return }
         let isMuted = mutedTopics.contains("\(streamID):\(topic)")
         do {
-            try await client.updateTopicVisibility(streamID: streamID, topic: topic, policy: isMuted ? 1 : 2)
+            try await client.updateTopicVisibility(streamID: streamID, topic: topic, policy: isMuted ? 0 : 1)
             if isMuted {
                 mutedTopics.remove("\(streamID):\(topic)")
             } else {

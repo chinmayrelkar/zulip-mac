@@ -45,7 +45,7 @@ public enum PaletteCommand: String, CaseIterable, Identifiable {
     }
 
     @MainActor
-    func run(_ store: Store) {
+    func run(_ store: Store, openSettings: OpenSettingsAction) {
         store.showCommandPalette = false
         switch self {
         case .quickOpen:
@@ -73,7 +73,7 @@ public enum PaletteCommand: String, CaseIterable, Identifiable {
         case .reload:
             Task { await store.start() }
         case .settings:
-            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+            openSettings()
         }
     }
 }
@@ -83,6 +83,7 @@ public struct CommandPaletteView: View {
     @State private var query = ""
     @State private var selectedIndex = 0
     @FocusState private var isFocused: Bool
+    @Environment(\.openSettings) private var openSettings
 
     public init(store: Store) {
         self.store = store
@@ -253,14 +254,14 @@ public struct CommandPaletteView: View {
 
     private func activateCurrentSelection() {
         guard selectedIndex >= 0 && selectedIndex < filteredCommands.count else { return }
-        filteredCommands[selectedIndex].run(store)
+        filteredCommands[selectedIndex].run(store, openSettings: openSettings)
     }
 
     private func commandRow(_ command: PaletteCommand) -> some View {
         let isSelected = selectedIndex < filteredCommands.count
             && filteredCommands[selectedIndex].id == command.id
         return Button {
-            command.run(store)
+            command.run(store, openSettings: openSettings)
         } label: {
             HStack(spacing: 10) {
                 Text(command.rawValue)

@@ -37,8 +37,10 @@ extension Store {
             ? channels
             : channels.filter { $0.name.localizedCaseInsensitiveContains(channelQuery) }
         var activityCache: [Int: Int] = [:]
+        var unreadCache: [Int: Int] = [:]
         for ch in filtered {
             activityCache[ch.streamID] = channelLastActivity(ch.streamID)
+            unreadCache[ch.streamID] = ch.isMuted ? 0 : unmutedTopicUnreads(ch.streamID)
         }
         return filtered.sorted { lhs, rhs in
             if lhs.pinToTop != rhs.pinToTop { return lhs.pinToTop }
@@ -48,8 +50,8 @@ extension Store {
             if lhsAct != rhsAct {
                 return lhsAct > rhsAct
             }
-            let lhsUnread = unread.channelCount(lhs.streamID)
-            let rhsUnread = unread.channelCount(rhs.streamID)
+            let lhsUnread = unreadCache[lhs.streamID] ?? 0
+            let rhsUnread = unreadCache[rhs.streamID] ?? 0
             if lhsUnread != rhsUnread {
                 return lhsUnread > rhsUnread
             }
@@ -124,7 +126,7 @@ extension Store {
             }
             return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
         }) {
-            let totalUnread = chs.reduce(0) { $0 + unread.channelCount($1.streamID) }
+            let totalUnread = chs.reduce(0) { $0 + unreadCount(forChannel: $1.streamID) }
             result.append(ChannelFolderGroup(
                 name: folder,
                 isFolder: true,
@@ -139,7 +141,7 @@ extension Store {
         }
 
         if !directChannels.isEmpty {
-            let totalUnread = directChannels.reduce(0) { $0 + unread.channelCount($1.streamID) }
+            let totalUnread = directChannels.reduce(0) { $0 + unreadCount(forChannel: $1.streamID) }
             result.append(ChannelFolderGroup(
                 name: "CHANNELS",
                 isFolder: false,
@@ -215,7 +217,7 @@ extension Store {
                 let isMuted = channel.isMuted || mutedSet.contains("\(channel.streamID):\(topic.name)")
                 if !showMuted && isMuted { continue }
                 let topicUnreads = channelUnreads?[topic.name]
-                let unreadCount = topicUnreads?.count ?? 0
+                let unreadCount = isMuted ? 0 : (topicUnreads?.count ?? 0)
                 if showUnreadOnly && unreadCount == 0 { continue }
                 if hasQuery {
                     if !channel.name.localizedCaseInsensitiveContains(query) &&
@@ -274,7 +276,7 @@ extension Store {
                     let streamName = msg.streamName ?? ch?.name ?? "Channel"
                     let streamColor = ch?.color ?? "888888"
                     let isMuted = mutedSet.contains(key) || ch?.isMuted == true
-                    let unreadCount = streamUnreads[streamID]?[topic]?.count ?? 0
+                    let unreadCount = isMuted ? 0 : (streamUnreads[streamID]?[topic]?.count ?? 0)
                     let isResolved = topic.hasPrefix("✔ ") || topic.hasPrefix("[RESOLVED]")
                     items.append(RecentTopicItem(
                         streamID: streamID,
@@ -306,6 +308,52 @@ extension Store {
             return items.sorted { $0.maxMessageID < $1.maxMessageID }
         } else {
             return items.sorted { $0.maxMessageID > $1.maxMessageID }
+        }
+    }
+
+    // MARK: - Unmuted Unread Message Counts
+
+    /// Returns the unread message count for a specific topic, returning 0 if the channel or topic is muted.
+    public func unreadCount(forTopic topic: String, streamID: Int) -> Int {
+        if channel(id: streamID)?.isMuted == true { return 0 }
+        if mutedTopics.contains("\(streamID):\(topic)") { return 0 }
+        return unread.topicCount(streamID, topic: topic)
+    }
+
+    /// Returns the unread message count for a channel, excluding any muted topics (and returning 0 if the channel itself is muted).
+    public func unreadCount(forChannel streamID: Int) -> Int {
+        if channel(id: streamID)?.isMuted == true { return 0 }
+        return unmutedTopicUnreads(streamID)
+    }
+
+    /// Unread count across a channel's unmuted topics, ignoring whether the channel itself is muted.
+    private func unmutedTopicUnreads(_ streamID: Int) -> Int {
+        guard let topics = unread.stream[streamID] else { return 0 }
+        var count = 0
+        for (topic, msgIDs) in topics where !mutedTopics.contains("\(streamID):\(topic)") {
+            count += msgIDs.count
+        }
+        return count
+    }
+
+    /// Returns the total unread message count across all DMs and unmuted topics in unmuted channels.
+    public var totalUnmutedUnreadCount: Int {
+        let mutedStreams = Set(channels.lazy.filter(\.isMuted).map(\.streamID))
+        var total = unread.dmTotal
+        for streamID in unread.stream.keys where !mutedStreams.contains(streamID) {
+            total += unmutedTopicUnreads(streamID)
+        }
+        return total
+    }
+
+    /// Checks if a narrow is muted (either topic or stream).
+    public func isNarrowMuted(_ narrow: Narrow) -> Bool {
+        switch narrow {
+        case .topic(let streamID, _, let topic):
+            if channel(id: streamID)?.isMuted == true { return true }
+            return mutedTopics.contains("\(streamID):\(topic)")
+        default:
+            return false
         }
     }
 }

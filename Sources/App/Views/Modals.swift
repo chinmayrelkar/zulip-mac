@@ -355,7 +355,7 @@ private extension QuickSwitcherView {
     private func channelRelevanceScore(_ channel: Channel) -> Int {
         var score = 0
         if channel.pinToTop { score += 10000 }
-        let unreadCount = store.unread.channelCount(channel.streamID)
+        let unreadCount = store.unreadCount(forChannel: channel.streamID)
         if unreadCount > 0 {
             score += 2000 + min(unreadCount * 20, 1500)
         }
@@ -576,6 +576,7 @@ public struct NewDMModal: View {
                     }
                     if !selectedUserIDs.isEmpty {
                         store.openDM(with: Array(selectedUserIDs))
+                        store.focusComposerTrigger += 1
                         store.showNewDMModal = false
                     }
                 }
@@ -633,6 +634,7 @@ public struct NewDMModal: View {
                 Spacer()
                 Button("Start Conversation") {
                     store.openDM(with: Array(selectedUserIDs))
+                    store.focusComposerTrigger += 1
                     store.showNewDMModal = false
                 }
                 .buttonStyle(.borderedProminent)

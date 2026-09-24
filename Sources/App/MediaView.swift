@@ -92,6 +92,12 @@ public struct MediaBlockView: View {
     @State private var playURL: URL?
     @State private var failed = false
 
+    // Fixed boxes per kind: the size is the same while loading, loaded, or failed,
+    // so rows never change height when media arrives.
+    private static let imageBox = CGSize(width: 480, height: 280)
+    private static let videoBox = CGSize(width: 400, height: 225)
+    private static let audioBox = CGSize(width: 360, height: 44)
+
     public init(src: String, original: String? = nil, alt: String, kind: MediaKind, loader: MediaLoader? = nil, onOpen: ((LightboxItem) -> Void)? = nil) {
         self.src = src
         self.original = original
@@ -106,30 +112,32 @@ public struct MediaBlockView: View {
             switch kind {
             case .image:
                 stillImage
+                    .frame(maxWidth: Self.imageBox.width, alignment: .leading)
+                    .frame(height: Self.imageBox.height, alignment: .leading)
             case .gif:
                 gifImage
+                    .frame(maxWidth: Self.imageBox.width, alignment: .leading)
+                    .frame(height: Self.imageBox.height, alignment: .leading)
             case .video:
-                if let playURL {
-                    NativeVideoPlayer(url: playURL)
-                        .frame(minWidth: 240, maxWidth: 480, minHeight: 180, maxHeight: 300)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else if failed {
-                    placeholder
-                } else {
-                    ProgressView()
-                        .frame(width: 240, height: 180)
+                Group {
+                    if let playURL {
+                        NativeVideoPlayer(url: playURL)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        placeholder
+                    }
                 }
+                .frame(width: Self.videoBox.width, height: Self.videoBox.height, alignment: .leading)
             case .audio:
-                if let playURL {
-                    NativeVideoPlayer(url: playURL)
-                        .frame(maxWidth: 400, minHeight: 44, maxHeight: 52)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else if failed {
-                    placeholder
-                } else {
-                    ProgressView()
-                        .frame(width: 200, height: 44)
+                Group {
+                    if let playURL {
+                        NativeVideoPlayer(url: playURL)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                    } else {
+                        placeholder
+                    }
                 }
+                .frame(width: Self.audioBox.width, height: Self.audioBox.height, alignment: .leading)
             }
         }
         .help(alt.isEmpty ? "Open media" : alt)
@@ -166,8 +174,8 @@ public struct MediaBlockView: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFit()
-                .frame(maxWidth: 480, maxHeight: 320, alignment: .leading)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(maxWidth: Self.imageBox.width, maxHeight: Self.imageBox.height, alignment: .leading)
         } else {
             placeholder
         }
@@ -177,8 +185,8 @@ public struct MediaBlockView: View {
     private var gifImage: some View {
         if let data, let image = NSImage(data: data) {
             let imgSize = image.size
-            let maxW: CGFloat = 460
-            let maxH: CGFloat = 300
+            let maxW = Self.imageBox.width
+            let maxH = Self.imageBox.height
             let (targetW, targetH): (CGFloat, CGFloat) = {
                 if imgSize.width > 0 && imgSize.height > 0 {
                     let wRatio = maxW / imgSize.width
@@ -198,14 +206,21 @@ public struct MediaBlockView: View {
 
     @ViewBuilder
     private var placeholder: some View {
-        if failed {
-            Text(alt.isEmpty ? "media failed to load" : alt)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        } else {
-            ProgressView()
-                .frame(maxWidth: 480, minHeight: 64, alignment: .leading)
+        // Fills whatever fixed box the caller gives it, so loading/failed states keep the final size.
+        ZStack {
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.secondary.opacity(0.08))
+            if failed {
+                Text(alt.isEmpty ? "media failed to load" : alt)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @MainActor

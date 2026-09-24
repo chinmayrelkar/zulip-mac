@@ -79,98 +79,96 @@ public struct ComposeBar: View {
                         }
                 }
 
-                if showFormatting {
-                    // Compact Bottom Toolbar & Actions
-                    HStack(spacing: 4) {
-                        if !isPreviewMode {
-                            toolButton(icon: "bold", help: "Bold (**)") { insertFormatting(prefix: "**", suffix: "**") }
-                            toolButton(icon: "italic", help: "Italic (*)") { insertFormatting(prefix: "*", suffix: "*") }
-                            toolButton(icon: "strikethrough", help: "Strikethrough (~~)") { insertFormatting(prefix: "~~", suffix: "~~") }
-                            toolButton(icon: "chevron.left.forwardslash.chevron.right", help: "Inline code (`)") { insertFormatting(prefix: "`", suffix: "`") }
-                            toolButton(icon: "curlybraces", help: "Code block (```)") { insertFormatting(prefix: "```\n", suffix: "\n```") }
-                            toolButton(icon: "link", help: "Link ([text](url))") { insertFormatting(prefix: "[", suffix: "](url)") }
-                            toolButton(icon: "quote.opening", help: "Quote (> )") { insertFormatting(prefix: "> ", suffix: "") }
-                            toolButton(icon: "list.bullet", help: "Bullet list (- )") { insertFormatting(prefix: "- ", suffix: "") }
-    
-                            Divider().frame(height: 12).padding(.horizontal, 2)
-    
-                            toolButton(icon: "paperclip", help: "Attach file or image") { selectAndUploadFile() }
-    
-                            Button {
-                                showEmojiPicker.toggle()
-                            } label: {
-                                Image(systemName: "face.smiling")
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 22, height: 22)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .help("Insert emoji")
-                            .popover(isPresented: $showEmojiPicker, arrowEdge: .top) {
-                                EmojiPickerPopover(store: store) { item in
-                                    showEmojiPicker = false
-                                    insertEmoji(item)
-                                }
-                            }
-                        } else {
-                            HStack(spacing: 4) {
-                                Image(systemName: "eye.fill")
-                                    .font(.system(size: 9))
-                                    .foregroundStyle(Color.accentColor)
-                                Text("Live Markdown Preview")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.leading, 4)
-                        }
-    
-                        Spacer()
-    
-                        // Preview Toggle Button
+                // Compact Bottom Toolbar & Actions
+                HStack(spacing: 4) {
+                    if !isPreviewMode {
+                        toolButton(icon: "bold", help: "Bold (**)") { insertFormatting(prefix: "**", suffix: "**") }
+                        toolButton(icon: "italic", help: "Italic (*)") { insertFormatting(prefix: "*", suffix: "*") }
+                        toolButton(icon: "strikethrough", help: "Strikethrough (~~)") { insertFormatting(prefix: "~~", suffix: "~~") }
+                        toolButton(icon: "chevron.left.forwardslash.chevron.right", help: "Inline code (`)") { insertFormatting(prefix: "`", suffix: "`") }
+                        toolButton(icon: "curlybraces", help: "Code block (```)") { insertFormatting(prefix: "```\n", suffix: "\n```") }
+                        toolButton(icon: "link", help: "Link ([text](url))") { insertFormatting(prefix: "[", suffix: "](url)") }
+                        toolButton(icon: "quote.opening", help: "Quote (> )") { insertFormatting(prefix: "> ", suffix: "") }
+                        toolButton(icon: "list.bullet", help: "Bullet list (- )") { insertFormatting(prefix: "- ", suffix: "") }
+
+                        Divider().frame(height: 12).padding(.horizontal, 2)
+
+                        toolButton(icon: "paperclip", help: "Attach file or image") { selectAndUploadFile() }
+
                         Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                isPreviewMode.toggle()
-                            }
+                            showEmojiPicker.toggle()
                         } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: isPreviewMode ? "pencil" : "eye")
-                                    .font(.system(size: 9))
-                                Text(isPreviewMode ? "Write" : "Preview")
-                                    .font(.system(size: 10.5, weight: .medium))
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(isPreviewMode ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                            .foregroundStyle(isPreviewMode ? Color.accentColor : Color.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Toggle Markdown live preview")
-    
-                        // Send Button
-                        Button {
-                            Task { await store.send() }
-                        } label: {
-                            Image(systemName: "paperplane.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.4) : Color.white)
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
                                 .frame(width: 22, height: 22)
-                                .background(
-                                    currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                        ? Color.secondary.opacity(0.15)
-                                        : Color.accentColor,
-                                    in: RoundedRectangle(cornerRadius: 5)
-                                )
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .disabled(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .help("Send message (Return or ⌘↵)")
-                        .keyboardShortcut(.return, modifiers: [.command])
+                        .help("Insert emoji")
+                        .popover(isPresented: $showEmojiPicker, arrowEdge: .top) {
+                            EmojiPickerPopover(store: store) { item in
+                                showEmojiPicker = false
+                                insertEmoji(item)
+                            }
+                        }
+                    } else {
+                        HStack(spacing: 4) {
+                            Image(systemName: "eye.fill")
+                                .font(.system(size: 9))
+                                .foregroundStyle(Color.accentColor)
+                            Text("Live Markdown Preview")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.leading, 4)
                     }
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+
+                    Spacer()
+
+                    // Preview Toggle Button
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            isPreviewMode.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: isPreviewMode ? "pencil" : "eye")
+                                .font(.system(size: 9))
+                            Text(isPreviewMode ? "Write" : "Preview")
+                                .font(.system(size: 10.5, weight: .medium))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(isPreviewMode ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                        .foregroundStyle(isPreviewMode ? Color.accentColor : Color.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Toggle Markdown live preview")
+
+                    // Send Button
+                    Button {
+                        Task { await store.send() }
+                    } label: {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary.opacity(0.4) : Color.white)
+                            .frame(width: 22, height: 22)
+                            .background(
+                                currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? Color.secondary.opacity(0.15)
+                                    : Color.accentColor,
+                                in: RoundedRectangle(cornerRadius: 5)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help("Send message (Return or ⌘↵)")
+                    .keyboardShortcut(.return, modifiers: [.command])
                 }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.35))
             }
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.7), in: RoundedRectangle(cornerRadius: 8))
             .overlay(
@@ -181,7 +179,6 @@ public struct ComposeBar: View {
                     )
             )
             .shadow(color: .black.opacity(0.04), radius: 2, y: 1)
-            .animation(.easeInOut(duration: 0.15), value: showFormatting)
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
             .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -202,11 +199,6 @@ public struct ComposeBar: View {
         store.activeTab?.draft ?? tab.draft
     }
 
-    private var showFormatting: Bool {
-        isEditorFocused
-            || !currentDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            || isPreviewMode
-    }
 
 
     public func requestFocus() {
@@ -297,7 +289,7 @@ public struct ComposeBar: View {
 }
 
 private struct TypingDotsAnimation: View {
-    @State private var dotOffset: CGFloat = 0
+    @State private var animating = false
 
     var body: some View {
         HStack(spacing: 3) {
@@ -305,17 +297,18 @@ private struct TypingDotsAnimation: View {
                 Circle()
                     .fill(Color.secondary.opacity(0.7))
                     .frame(width: 4, height: 4)
-                    .offset(y: dotOffset(for: index))
+                    .offset(y: animating ? -3 : 0)
+                    .animation(
+                        .easeInOut(duration: 0.5)
+                            .repeatForever(autoreverses: true)
+                            .delay(Double(index) * 0.15),
+                        value: animating
+                    )
             }
         }
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.6).repeatForever()) {
-                dotOffset = -3
-            }
+            animating = true
         }
     }
-
-    private func dotOffset(for index: Int) -> CGFloat {
-        dotOffset
-    }
 }
+
